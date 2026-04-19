@@ -57,11 +57,20 @@
           <button class="eeprom-mode" data-mode="dec">DEC</button>
           <button class="eeprom-mode" data-mode="bin">BIN</button>
           <button class="eeprom-mode" data-mode="char">CHAR</button>
+          <span class="eeprom-mode-sep"></span>
+          <button class="eeprom-mode" data-mode="map">MAP</button>
+        </div>
+        <div class="eeprom-map-actions" id="eeprom-map-actions" style="display:none">
+          <button class="btn" id="eeprom-map-dl-btn" title="Scarica la mappa come file JSON">&#8659; Template</button>
+          <button class="btn" id="eeprom-map-ul-btn" title="Carica una mappa da file JSON">&#8657; Template</button>
+          <input type="file" id="eeprom-map-ul-input" accept=".json" style="display:none" />
+          <button class="btn" id="eeprom-map-edit-btn">&#9999; Modifica Mappa</button>
         </div>
       </div>
       <div class="eeprom-table-wrap">
         <div class="eeprom-loading" id="eeprom-loading">Caricamento&hellip;</div>
         <table class="eeprom-table" id="eeprom-table"></table>
+        <div class="eeprom-map-content hidden" id="eeprom-map-content"></div>
       </div>
       <div class="eeprom-footer">
         <div class="eeprom-footer-actions">

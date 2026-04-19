@@ -134,6 +134,21 @@ app.post('/api/devices/:id/eeprom/format', async (req, res) => {
   }
 });
 
+app.get('/api/devices/:id/eeprom-map', (req, res) => {
+  const device = devices.get(req.params.id);
+  if (!device) return res.status(404).json({ ok: false, error: 'not found' });
+  res.json({ ok: true, fields: device.eepromMap?.fields || [] });
+});
+
+app.post('/api/devices/:id/eeprom-map', (req, res) => {
+  const device = devices.get(req.params.id);
+  if (!device) return res.status(404).json({ ok: false, error: 'not found' });
+  device.eepromMap = { fields: Array.isArray(req.body.fields) ? req.body.fields : [] };
+  devices.set(device.id, device);
+  saveDevices();
+  res.json({ ok: true });
+});
+
 app.post('/api/devices/:id/command', async (req, res) => {
   const device = devices.get(req.params.id);
   if (!device) return res.status(404).json({ ok: false, error: 'not found' });

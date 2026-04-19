@@ -500,7 +500,170 @@ main { padding: 28px; }
   flex-shrink: 0;
   display: flex;
   align-items: center;
+  justify-content: space-between;
+  gap: 10px;
 }
+
+.eeprom-map-actions {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+  flex-shrink: 0;
+}
+
+.eeprom-mode-sep {
+  display: inline-block;
+  width: 1px;
+  height: 16px;
+  background: var(--border);
+  margin: 0 4px;
+  vertical-align: middle;
+}
+
+/* Map content area (inside eeprom-table-wrap) */
+.eeprom-map-content {
+  padding: 16px 20px;
+}
+
+/* Map field table (view mode) */
+.map-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+}
+.map-table th {
+  text-align: left;
+  color: var(--muted);
+  font-weight: 500;
+  padding: 6px 8px;
+  border-bottom: 1px solid var(--border);
+  white-space: nowrap;
+}
+.map-table td {
+  padding: 5px 8px;
+  border-bottom: 1px solid rgba(35,42,77,0.5);
+  vertical-align: middle;
+}
+.map-table tr.map-field-row:hover td { background: rgba(106,167,255,0.04); }
+.map-table tr.map-bit-row td { padding: 3px 8px; }
+.map-field-name { color: var(--accent); font-weight: 500; }
+.map-field-addr { color: var(--muted); font-size: 11px; white-space: nowrap; }
+.map-field-type { color: var(--chart-2); }
+.map-field-value { color: var(--text); min-width: 80px; cursor: pointer; }
+.map-field-value:hover { color: var(--accent); }
+.map-field-desc { color: var(--muted); font-size: 11px; }
+.map-bit-name-cell { padding-left: 24px !important; color: var(--muted); }
+.map-bit-label { color: var(--muted); font-size: 11px; }
+.map-bit-toggle { cursor: pointer; }
+.map-bit-toggle:hover { opacity: 0.75; }
+.map-bit-state-1 { color: var(--ok); }
+.map-bit-state-0 { color: var(--bad); opacity: 0.5; }
+.map-value-input {
+  background: rgba(255,255,255,0.08);
+  border: 1px solid rgba(106,167,255,0.6);
+  border-radius: 3px;
+  color: var(--text);
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 12px;
+  padding: 1px 4px;
+  outline: none;
+  width: 100%;
+  min-width: 60px;
+}
+.map-no-fields {
+  padding: 48px 20px;
+  text-align: center;
+  color: var(--muted);
+  font-size: 13px;
+  line-height: 1.8;
+}
+
+/* Map editor */
+.map-editor { display: flex; flex-direction: column; gap: 14px; }
+.map-editor-field-list { display: flex; flex-direction: column; gap: 6px; }
+.map-editor-field-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  background: rgba(106,167,255,0.05);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  font-size: 12px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+}
+.mef-name { color: var(--accent); font-weight: 500; flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.mef-info { color: var(--muted); font-size: 11px; flex-shrink: 0; }
+
+/* Field form */
+.map-field-form {
+  background: rgba(255,255,255,0.03);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.map-field-form h4 { margin: 0; font-size: 13px; color: var(--text); }
+.mf-row {
+  display: grid;
+  grid-template-columns: 130px 1fr;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+}
+.mf-row > label { color: var(--muted); }
+.mf-input {
+  background: rgba(255,255,255,0.06);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  color: var(--text);
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 12px;
+  padding: 5px 8px;
+  outline: none;
+  width: 100%;
+}
+.mf-input:focus { border-color: rgba(106,167,255,0.5); }
+.mf-select {
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  color: var(--text);
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 12px;
+  padding: 5px 8px;
+  outline: none;
+  width: 100%;
+}
+.mf-bits-section {
+  border-top: 1px solid var(--border);
+  padding-top: 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.mf-bits-title { font-size: 11px; color: var(--muted); font-weight: 500; margin-bottom: 4px; }
+.mf-bit-row {
+  display: grid;
+  grid-template-columns: 52px 1fr 1fr;
+  align-items: center;
+  gap: 6px;
+}
+.mf-bit-row > label { font-size: 11px; color: var(--muted); }
+.map-form-actions { display: flex; justify-content: flex-end; gap: 8px; padding-top: 4px; }
+.map-editor-actions {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding-top: 4px;
+  border-top: 1px solid var(--border);
+  margin-top: 4px;
+}
+.btn-map-del:hover { color: var(--bad); border-color: rgba(255,95,109,0.4); }
+.btn-map-edit-field:hover { color: var(--accent); border-color: rgba(106,167,255,0.4); }
 
 .eeprom-view-modes {
   display: flex;
