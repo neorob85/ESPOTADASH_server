@@ -192,6 +192,7 @@ function cardHtml(d) {
       <div class="foot-actions">
         <button class="btn btn-cmd" data-action="command" data-id="${escapeHtml(d.id)}">Comandi</button>
         <button class="btn btn-eeprom" data-action="eeprom" data-id="${escapeHtml(d.id)}">EEPROM</button>
+        <button class="btn btn-ota" data-action="ota" data-id="${escapeHtml(d.id)}">OTA</button>
         <button class="btn" data-action="remove" data-id="${escapeHtml(d.id)}">Rimuovi</button>
       </div>
     </div>
@@ -214,6 +215,10 @@ grid.addEventListener('click', async (ev) => {
 
   if (btn.dataset.action === 'eeprom') {
     openEepromModal(devices.get(id));
+  }
+
+  if (btn.dataset.action === 'ota') {
+    openOtaModal(devices.get(id));
   }
 });
 
@@ -285,6 +290,7 @@ document.addEventListener('keydown', (ev) => {
   if (ev.key === 'Escape') {
     if (!eepromModal.classList.contains('hidden')) closeEepromModal();
     else if (!groupModal.classList.contains('hidden')) closeGroupModal();
+    else if (!otaModal.classList.contains('hidden')) closeOtaModal();
     else closeCmdModal();
   }
 });
@@ -1197,6 +1203,144 @@ function upsert(device) {
   }
   devices.set(device.id, device);
 }
+
+// ---- Modal OTA ----
+
+const otaModal        = document.getElementById('ota-modal');
+const otaModalTitle   = document.getElementById('ota-modal-title');
+const otaModalClose   = document.getElementById('ota-modal-close');
+const otaFileInput    = document.getElementById('ota-file-input');
+const otaBrowseBtn    = document.getElementById('ota-browse-btn');
+const otaDrop         = document.getElementById('ota-drop');
+const otaDropLabel    = document.getElementById('ota-drop-label');
+const otaFileInfo     = document.getElementById('ota-file-info');
+const otaProgress     = document.getElementById('ota-progress');
+const otaProgressFill = document.getElementById('ota-progress-fill');
+const otaProgressText = document.getElementById('ota-progress-text');
+const otaResult       = document.getElementById('ota-result');
+const otaCancelBtn    = document.getElementById('ota-cancel-btn');
+const otaFlashBtn     = document.getElementById('ota-flash-btn');
+
+let otaDeviceId = null;
+let otaFile     = null;
+
+function openOtaModal(device) {
+  if (!device) return;
+  otaDeviceId = device.id;
+  otaFile = null;
+  otaModalTitle.textContent = `Aggiornamento Firmware OTA — ${device.name || device.id}`;
+  otaDropLabel.classList.remove('hidden');
+  otaFileInfo.classList.add('hidden');
+  otaProgress.classList.add('hidden');
+  otaProgressFill.style.width = '0%';
+  otaProgressText.textContent = '0%';
+  otaResult.classList.add('hidden');
+  otaFlashBtn.disabled = true;
+  otaCancelBtn.disabled = false;
+  otaFileInput.value = '';
+  otaDrop.classList.remove('drag-over');
+  otaModal.classList.remove('hidden');
+}
+
+function closeOtaModal() {
+  otaModal.classList.add('hidden');
+  otaDeviceId = null;
+  otaFile = null;
+}
+
+function setOtaFile(file) {
+  if (!file) return;
+  if (!file.name.endsWith('.bin')) {
+    otaResult.textContent = 'Seleziona un file .bin valido';
+    otaResult.className = 'ota-result err';
+    otaResult.classList.remove('hidden');
+    return;
+  }
+  otaFile = file;
+  otaResult.classList.add('hidden');
+  otaDropLabel.classList.add('hidden');
+  otaFileInfo.innerHTML = `<strong>${escapeHtml(file.name)}</strong> &mdash; ${fmtBytes(file.size)}
+    <button class="ota-file-clear" title="Rimuovi file">&times;</button>`;
+  otaFileInfo.classList.remove('hidden');
+  otaFlashBtn.disabled = false;
+}
+
+otaBrowseBtn.addEventListener('click', () => otaFileInput.click());
+otaFileInput.addEventListener('change', () => setOtaFile(otaFileInput.files[0]));
+
+otaFileInfo.addEventListener('click', (ev) => {
+  if (ev.target.classList.contains('ota-file-clear')) {
+    otaFile = null;
+    otaFileInput.value = '';
+    otaFileInfo.classList.add('hidden');
+    otaDropLabel.classList.remove('hidden');
+    otaFlashBtn.disabled = true;
+  }
+});
+
+otaDrop.addEventListener('dragover', (ev) => { ev.preventDefault(); otaDrop.classList.add('drag-over'); });
+otaDrop.addEventListener('dragleave', () => otaDrop.classList.remove('drag-over'));
+otaDrop.addEventListener('drop', (ev) => {
+  ev.preventDefault();
+  otaDrop.classList.remove('drag-over');
+  setOtaFile(ev.dataTransfer.files[0]);
+});
+
+otaModalClose.addEventListener('click', closeOtaModal);
+otaCancelBtn.addEventListener('click', closeOtaModal);
+otaModal.addEventListener('click', (ev) => { if (ev.target === otaModal) closeOtaModal(); });
+
+otaFlashBtn.addEventListener('click', () => {
+  if (!otaFile || !otaDeviceId) return;
+  const deviceName = devices.get(otaDeviceId)?.name || otaDeviceId;
+  if (!confirm(`Procedere con il flash di "${otaFile.name}" su ${deviceName}?\nIl dispositivo si riavvierà al termine.`)) return;
+
+  otaFlashBtn.disabled = true;
+  otaCancelBtn.disabled = true;
+  otaProgress.classList.remove('hidden');
+  otaResult.classList.add('hidden');
+  otaProgressFill.style.width = '0%';
+  otaProgressText.textContent = '0%';
+
+  const formData = new FormData();
+  formData.append('firmware', otaFile, otaFile.name);
+
+  const xhr = new XMLHttpRequest();
+  xhr.open('POST', `/api/devices/${encodeURIComponent(otaDeviceId)}/firmware`);
+
+  xhr.upload.addEventListener('progress', (ev) => {
+    if (ev.lengthComputable) {
+      const pct = Math.round((ev.loaded / ev.total) * 100);
+      otaProgressFill.style.width = pct + '%';
+      otaProgressText.textContent = pct + '%';
+    }
+  });
+
+  xhr.addEventListener('load', () => {
+    otaCancelBtn.disabled = false;
+    let body = {};
+    try { body = JSON.parse(xhr.responseText); } catch (_) {}
+    if (xhr.status >= 200 && xhr.status < 300 && body.ok !== false) {
+      otaResult.textContent = 'Flash completato. Il dispositivo si sta riavviando…';
+      otaResult.className = 'ota-result ok';
+    } else {
+      otaResult.textContent = 'Errore: ' + (body.error || `HTTP ${xhr.status}`);
+      otaResult.className = 'ota-result err';
+      otaFlashBtn.disabled = false;
+    }
+    otaResult.classList.remove('hidden');
+  });
+
+  xhr.addEventListener('error', () => {
+    otaCancelBtn.disabled = false;
+    otaFlashBtn.disabled = false;
+    otaResult.textContent = 'Errore di rete';
+    otaResult.className = 'ota-result err';
+    otaResult.classList.remove('hidden');
+  });
+
+  xhr.send(formData);
+});
 
 function connect() {
   const proto = location.protocol === 'https:' ? 'wss' : 'ws';

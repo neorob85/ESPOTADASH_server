@@ -145,6 +145,36 @@
     </div>
   </div>
 
+  <!-- Modal OTA Firmware -->
+  <div id="ota-modal" class="modal-overlay hidden" role="dialog" aria-modal="true" aria-labelledby="ota-modal-title">
+    <div class="modal">
+      <div class="modal-head">
+        <h3 id="ota-modal-title">Aggiornamento Firmware OTA</h3>
+        <button class="modal-close" id="ota-modal-close" aria-label="Chiudi">&times;</button>
+      </div>
+      <div class="modal-body" id="ota-modal-body">
+        <div class="ota-drop" id="ota-drop">
+          <input type="file" id="ota-file-input" accept=".bin" style="display:none" />
+          <div class="ota-drop-label" id="ota-drop-label">
+            <svg viewBox="0 0 24 24" width="32" height="32" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" style="margin-bottom:8px;opacity:0.5"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+            <span>Trascina il file <code>.bin</code> qui oppure</span>
+            <button class="btn" id="ota-browse-btn" type="button">Sfoglia…</button>
+          </div>
+          <div class="ota-file-info hidden" id="ota-file-info"></div>
+        </div>
+        <div class="ota-progress hidden" id="ota-progress">
+          <div class="ota-progress-bar"><span id="ota-progress-fill"></span></div>
+          <span id="ota-progress-text">0%</span>
+        </div>
+        <div class="ota-result hidden" id="ota-result"></div>
+      </div>
+      <div class="group-modal-footer">
+        <button class="btn btn-exit" id="ota-cancel-btn">Annulla</button>
+        <button class="btn btn-save" id="ota-flash-btn" disabled>Flash</button>
+      </div>
+    </div>
+  </div>
+
   <script src="app.js"></script>
 </body>
 </html>

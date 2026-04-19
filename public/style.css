@@ -991,6 +991,90 @@ main { padding: 28px; }
   flex-shrink: 0;
 }
 
+/* OTA button */
+.btn.btn-ota:hover { color: var(--warn); border-color: rgba(255,184,77,0.4); }
+
+/* OTA modal */
+.ota-drop {
+  border: 2px dashed var(--border);
+  border-radius: 12px;
+  padding: 28px 20px;
+  text-align: center;
+  transition: border-color 0.15s, background 0.15s;
+  cursor: default;
+}
+.ota-drop.drag-over {
+  border-color: rgba(255,184,77,0.6);
+  background: rgba(255,184,77,0.06);
+}
+.ota-drop-label {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  color: var(--muted);
+  font-size: 13px;
+}
+.ota-drop-label code {
+  background: rgba(255,255,255,0.07);
+  padding: 1px 5px;
+  border-radius: 4px;
+  font-size: 12px;
+}
+.ota-file-info {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  font-size: 13px;
+  color: var(--ok);
+}
+.ota-file-clear {
+  background: none;
+  border: none;
+  color: var(--muted);
+  cursor: pointer;
+  font-size: 16px;
+  line-height: 1;
+  padding: 0 2px;
+}
+.ota-file-clear:hover { color: var(--bad); }
+.ota-progress {
+  margin-top: 14px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.ota-progress-bar {
+  flex: 1;
+  height: 8px;
+  background: rgba(255,255,255,0.06);
+  border-radius: 4px;
+  overflow: hidden;
+}
+.ota-progress-bar span {
+  display: block;
+  height: 100%;
+  background: var(--warn);
+  border-radius: 4px;
+  transition: width 0.2s ease;
+  width: 0%;
+}
+#ota-progress-text {
+  font-size: 12px;
+  color: var(--muted);
+  min-width: 32px;
+  text-align: right;
+}
+.ota-result {
+  margin-top: 12px;
+  padding: 10px 14px;
+  border-radius: 8px;
+  font-size: 13px;
+}
+.ota-result.ok  { color: var(--ok);  background: var(--ok-dim);  }
+.ota-result.err { color: var(--bad); background: var(--bad-dim); }
+
 @media (max-width: 520px) {
   .topbar { padding: 14px; flex-wrap: wrap; gap: 10px; }
   .stats { gap: 8px; }
