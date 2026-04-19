@@ -288,6 +288,7 @@ main { padding: 28px; }
 }
 .btn:hover { color: var(--bad); border-color: rgba(255,95,109,0.4); }
 .btn.btn-cmd:hover { color: var(--accent); border-color: rgba(106,167,255,0.4); }
+.btn.btn-eeprom:hover { color: var(--chart-2); border-color: rgba(179,139,255,0.4); }
 
 /* ---- Modal ---- */
 .modal-overlay.hidden { display: none; }
@@ -486,6 +487,152 @@ main { padding: 28px; }
 .rssi-bars.s2 i:nth-child(-n+2),
 .rssi-bars.s3 i:nth-child(-n+3),
 .rssi-bars.s4 i { opacity: 1; background: var(--ok); }
+
+/* ---- EEPROM Modal ---- */
+.modal-eeprom {
+  max-width: 900px;
+  max-height: 90vh;
+}
+
+.eeprom-toolbar {
+  padding: 10px 20px;
+  border-bottom: 1px solid var(--border);
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+}
+
+.eeprom-view-modes {
+  display: flex;
+  gap: 4px;
+}
+
+.eeprom-mode {
+  padding: 4px 14px;
+  font-size: 11px;
+  font-weight: 600;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  letter-spacing: 0.6px;
+  background: transparent;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  color: var(--muted);
+  cursor: pointer;
+  transition: background 0.15s, border-color 0.15s, color 0.15s;
+}
+.eeprom-mode:hover { color: var(--text); border-color: rgba(106,167,255,0.4); }
+.eeprom-mode.active {
+  background: rgba(106,167,255,0.12);
+  border-color: rgba(106,167,255,0.4);
+  color: var(--accent);
+}
+
+.eeprom-table-wrap {
+  flex: 1;
+  overflow: auto;
+  padding: 0;
+}
+
+.eeprom-loading {
+  padding: 48px 20px;
+  text-align: center;
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.eeprom-table {
+  border-collapse: collapse;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 12px;
+  width: 100%;
+}
+
+.eeprom-table thead th {
+  position: sticky;
+  top: 0;
+  background: var(--bg-card);
+  color: var(--muted);
+  font-weight: 500;
+  padding: 8px 5px 6px;
+  text-align: center;
+  border-bottom: 1px solid var(--border);
+  z-index: 1;
+  min-width: 32px;
+}
+
+.eeprom-addr-hdr { min-width: 52px; }
+
+.eeprom-addr {
+  color: var(--muted);
+  padding: 3px 14px 3px 16px;
+  text-align: right;
+  white-space: nowrap;
+  user-select: none;
+  border-right: 1px solid var(--border);
+  font-weight: 500;
+}
+
+.eeprom-table tbody tr:hover { background: rgba(106,167,255,0.04); }
+
+.eeprom-cell {
+  text-align: center;
+  padding: 3px 5px;
+  cursor: pointer;
+  border-radius: 3px;
+  transition: background 0.1s;
+  white-space: nowrap;
+  color: var(--text);
+}
+.eeprom-cell:hover { background: rgba(106,167,255,0.14); }
+.eeprom-cell.dirty { color: var(--warn); }
+
+.eeprom-cell-input {
+  width: 100%;
+  min-width: 28px;
+  background: rgba(255,255,255,0.08);
+  border: 1px solid rgba(106,167,255,0.6);
+  border-radius: 3px;
+  color: var(--text);
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 12px;
+  text-align: center;
+  outline: none;
+  padding: 1px 2px;
+}
+
+.eeprom-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 20px;
+  border-top: 1px solid var(--border);
+  flex-shrink: 0;
+  gap: 12px;
+}
+
+.eeprom-status {
+  font-size: 12px;
+  color: var(--muted);
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.eeprom-status.ok   { color: var(--ok); }
+.eeprom-status.err  { color: var(--bad); }
+.eeprom-status.warn { color: var(--warn); }
+
+.eeprom-footer-actions { display: flex; gap: 8px; flex-shrink: 0; }
+
+.btn-backup:hover        { color: var(--accent); border-color: rgba(106,167,255,0.4); }
+.btn-restore:hover       { color: var(--chart-2); border-color: rgba(179,139,255,0.4); }
+.btn-refresh-eeprom:hover { color: var(--ok); border-color: rgba(39,209,127,0.4); }
+.btn-refresh-eeprom:disabled { opacity: 0.6; cursor: wait; }
+.btn-format:hover  { color: var(--warn); border-color: rgba(255,184,77,0.4); }
+.btn-save { color: var(--ok); border-color: rgba(39,209,127,0.3); }
+.btn-save:hover { background: rgba(39,209,127,0.12); border-color: rgba(39,209,127,0.5); }
+.btn-save:disabled { opacity: 0.6; cursor: wait; }
+.btn-exit:hover { color: var(--bad); border-color: rgba(255,95,109,0.4); }
 
 @media (max-width: 520px) {
   .topbar { padding: 14px; }

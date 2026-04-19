@@ -75,6 +75,65 @@ app.delete('/api/devices/:id', (req, res) => {
   res.json({ ok: true });
 });
 
+app.get('/api/devices/:id/eeprom', async (req, res) => {
+  const device = devices.get(req.params.id);
+  if (!device) return res.status(404).json({ ok: false, error: 'not found' });
+  const port = device.port || 80;
+  const url = `http://${device.ip}:${port}/eeprom`;
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), PING_TIMEOUT_MS * 3);
+  try {
+    const r = await fetch(url, { signal: controller.signal });
+    const body = await r.json().catch(() => ({}));
+    res.status(r.ok ? 200 : 502).json(body);
+  } catch (_e) {
+    res.status(504).json({ ok: false, error: 'device unreachable' });
+  } finally {
+    clearTimeout(timer);
+  }
+});
+
+app.post('/api/devices/:id/eeprom', async (req, res) => {
+  const device = devices.get(req.params.id);
+  if (!device) return res.status(404).json({ ok: false, error: 'not found' });
+  const port = device.port || 80;
+  const url = `http://${device.ip}:${port}/eeprom`;
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), PING_TIMEOUT_MS * 3);
+  try {
+    const r = await fetch(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(req.body),
+      signal: controller.signal,
+    });
+    const body = await r.json().catch(() => ({}));
+    res.status(r.ok ? 200 : 502).json(body);
+  } catch (_e) {
+    res.status(504).json({ ok: false, error: 'device unreachable' });
+  } finally {
+    clearTimeout(timer);
+  }
+});
+
+app.post('/api/devices/:id/eeprom/format', async (req, res) => {
+  const device = devices.get(req.params.id);
+  if (!device) return res.status(404).json({ ok: false, error: 'not found' });
+  const port = device.port || 80;
+  const url = `http://${device.ip}:${port}/eeprom/format`;
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), PING_TIMEOUT_MS * 3);
+  try {
+    const r = await fetch(url, { method: 'POST', signal: controller.signal });
+    const body = await r.json().catch(() => ({}));
+    res.status(r.ok ? 200 : 502).json(body);
+  } catch (_e) {
+    res.status(504).json({ ok: false, error: 'device unreachable' });
+  } finally {
+    clearTimeout(timer);
+  }
+});
+
 app.post('/api/devices/:id/command', async (req, res) => {
   const device = devices.get(req.params.id);
   if (!device) return res.status(404).json({ ok: false, error: 'not found' });

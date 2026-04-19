@@ -44,6 +44,42 @@
     </div>
   </div>
 
+  <!-- Modal EEPROM -->
+  <div id="eeprom-modal" class="modal-overlay hidden" role="dialog" aria-modal="true" aria-labelledby="eeprom-modal-title">
+    <div class="modal modal-eeprom">
+      <div class="modal-head">
+        <h3 id="eeprom-modal-title">EEPROM</h3>
+        <button class="modal-close" id="eeprom-modal-close" aria-label="Chiudi">&times;</button>
+      </div>
+      <div class="eeprom-toolbar" id="eeprom-toolbar">
+        <div class="eeprom-view-modes">
+          <button class="eeprom-mode active" data-mode="hex">HEX</button>
+          <button class="eeprom-mode" data-mode="dec">DEC</button>
+          <button class="eeprom-mode" data-mode="bin">BIN</button>
+          <button class="eeprom-mode" data-mode="char">CHAR</button>
+        </div>
+      </div>
+      <div class="eeprom-table-wrap">
+        <div class="eeprom-loading" id="eeprom-loading">Caricamento&hellip;</div>
+        <table class="eeprom-table" id="eeprom-table"></table>
+      </div>
+      <div class="eeprom-footer">
+        <div class="eeprom-footer-actions">
+          <button class="btn btn-backup" id="eeprom-backup-btn" title="Scarica il contenuto attuale come file .bin">&#8659; Backup</button>
+          <button class="btn btn-restore" id="eeprom-restore-btn" title="Carica un file .bin e importa i dati">&#8657; Ripristina</button>
+          <button class="btn btn-refresh-eeprom" id="eeprom-refresh-btn" title="Rileggi tutti i valori dal dispositivo">&#8635; Refresh</button>
+          <input type="file" id="eeprom-restore-input" accept=".bin" style="display:none" />
+        </div>
+        <span class="eeprom-status" id="eeprom-status"></span>
+        <div class="eeprom-footer-actions">
+          <button class="btn btn-format" id="eeprom-format-btn">Formatta</button>
+          <button class="btn btn-save" id="eeprom-save-btn">Salva</button>
+          <button class="btn btn-exit" id="eeprom-exit-btn">Esci</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
   <script src="app.js"></script>
 </body>
 </html>

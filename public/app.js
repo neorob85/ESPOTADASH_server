@@ -191,6 +191,7 @@ function cardHtml(d) {
       <span>ultimo ping: <code>${fmtRel(d.lastPing || d.lastSeen)}</code></span>
       <div class="foot-actions">
         <button class="btn btn-cmd" data-action="command" data-id="${escapeHtml(d.id)}">Comandi</button>
+        <button class="btn btn-eeprom" data-action="eeprom" data-id="${escapeHtml(d.id)}">EEPROM</button>
         <button class="btn" data-action="remove" data-id="${escapeHtml(d.id)}">Rimuovi</button>
       </div>
     </div>
@@ -209,6 +210,10 @@ grid.addEventListener('click', async (ev) => {
 
   if (btn.dataset.action === 'command') {
     openCmdModal(devices.get(id));
+  }
+
+  if (btn.dataset.action === 'eeprom') {
+    openEepromModal(devices.get(id));
   }
 });
 
@@ -276,7 +281,12 @@ async function sendCommand(deviceId, command) {
 
 modalClose.addEventListener('click', closeCmdModal);
 cmdModal.addEventListener('click', (ev) => { if (ev.target === cmdModal) closeCmdModal(); });
-document.addEventListener('keydown', (ev) => { if (ev.key === 'Escape') closeCmdModal(); });
+document.addEventListener('keydown', (ev) => {
+  if (ev.key === 'Escape') {
+    if (!eepromModal.classList.contains('hidden')) closeEepromModal();
+    else closeCmdModal();
+  }
+});
 
 modalBody.addEventListener('click', async (ev) => {
   const btn = ev.target.closest('.cmd-btn');
@@ -292,6 +302,254 @@ modalBody.addEventListener('submit', async (ev) => {
   const command = input.value.trim();
   if (!command) return;
   await sendCommand(form.dataset.id, command);
+});
+
+// ---- Modal EEPROM ----
+
+const eepromModal    = document.getElementById('eeprom-modal');
+const eepromModalTitle = document.getElementById('eeprom-modal-title');
+const eepromModalClose = document.getElementById('eeprom-modal-close');
+const eepromTable    = document.getElementById('eeprom-table');
+const eepromLoading  = document.getElementById('eeprom-loading');
+const eepromStatus   = document.getElementById('eeprom-status');
+const eepromFormatBtn  = document.getElementById('eeprom-format-btn');
+const eepromSaveBtn    = document.getElementById('eeprom-save-btn');
+const eepromExitBtn    = document.getElementById('eeprom-exit-btn');
+const eepromBackupBtn   = document.getElementById('eeprom-backup-btn');
+const eepromRestoreBtn  = document.getElementById('eeprom-restore-btn');
+const eepromRestoreInput = document.getElementById('eeprom-restore-input');
+const eepromRefreshBtn  = document.getElementById('eeprom-refresh-btn');
+const eepromToolbar    = document.getElementById('eeprom-toolbar');
+
+let eepromData     = null;  // Uint8Array — live editable state
+let eepromOriginal = null;  // Uint8Array — last saved state
+let eepromDeviceId = null;
+let eepromViewMode = 'hex';
+
+function fmtCell(val, mode) {
+  switch (mode) {
+    case 'hex':  return val.toString(16).toUpperCase().padStart(2, '0');
+    case 'dec':  return String(val);
+    case 'bin':  return val.toString(2).padStart(8, '0');
+    case 'char': return (val >= 0x20 && val <= 0x7E) ? String.fromCharCode(val) : '.';
+    default:     return val.toString(16).toUpperCase().padStart(2, '0');
+  }
+}
+
+function parseCell(str, mode) {
+  let val;
+  switch (mode) {
+    case 'hex':  val = parseInt(str, 16); break;
+    case 'dec':  val = parseInt(str, 10); break;
+    case 'bin':  val = parseInt(str, 2);  break;
+    case 'char': val = str.length >= 1 ? str.charCodeAt(0) : NaN; break;
+    default:     val = parseInt(str, 16);
+  }
+  return (!isNaN(val) && val >= 0 && val <= 255) ? val : null;
+}
+
+function renderEepromTable() {
+  if (!eepromData) return;
+  const cols = 16;
+  const rows = Math.ceil(eepromData.length / cols);
+
+  let html = '<thead><tr><th class="eeprom-addr-hdr"></th>';
+  for (let c = 0; c < cols; c++) {
+    html += `<th>${c.toString(16).toUpperCase().padStart(2, '0')}</th>`;
+  }
+  html += '</tr></thead><tbody>';
+
+  for (let r = 0; r < rows; r++) {
+    const base = r * cols;
+    html += `<tr><td class="eeprom-addr">${base.toString(16).toUpperCase().padStart(3, '0')}</td>`;
+    for (let c = 0; c < cols; c++) {
+      const idx = base + c;
+      if (idx >= eepromData.length) { html += '<td></td>'; continue; }
+      const val = eepromData[idx];
+      const dirty = val !== eepromOriginal[idx] ? ' dirty' : '';
+      html += `<td class="eeprom-cell${dirty}" data-idx="${idx}">${escapeHtml(fmtCell(val, eepromViewMode))}</td>`;
+    }
+    html += '</tr>';
+  }
+  html += '</tbody>';
+  eepromTable.innerHTML = html;
+}
+
+function setEepromStatus(msg, type) {
+  eepromStatus.textContent = msg;
+  eepromStatus.className = 'eeprom-status' + (type ? ' ' + type : '');
+}
+
+async function openEepromModal(device) {
+  if (!device) return;
+  eepromDeviceId = device.id;
+  eepromModalTitle.textContent = `EEPROM — ${device.name || device.id}`;
+  eepromData = null;
+  eepromOriginal = null;
+  eepromTable.innerHTML = '';
+  eepromLoading.classList.remove('hidden');
+  setEepromStatus('');
+  eepromModal.classList.remove('hidden');
+
+  try {
+    const r = await fetch(`/api/devices/${encodeURIComponent(device.id)}/eeprom`);
+    const body = await r.json();
+    if (!body.ok || !Array.isArray(body.data)) throw new Error(body.error || 'risposta non valida');
+    eepromData = new Uint8Array(body.data);
+    eepromOriginal = new Uint8Array(body.data);
+    eepromLoading.classList.add('hidden');
+    renderEepromTable();
+  } catch (e) {
+    eepromLoading.classList.add('hidden');
+    setEepromStatus('Errore: ' + e.message, 'err');
+  }
+}
+
+function closeEepromModal() {
+  eepromModal.classList.add('hidden');
+  eepromData = null;
+  eepromOriginal = null;
+  eepromDeviceId = null;
+}
+
+eepromModalClose.addEventListener('click', closeEepromModal);
+eepromExitBtn.addEventListener('click', closeEepromModal);
+eepromModal.addEventListener('click', (ev) => { if (ev.target === eepromModal) closeEepromModal(); });
+
+eepromToolbar.addEventListener('click', (ev) => {
+  const btn = ev.target.closest('.eeprom-mode');
+  if (!btn) return;
+  eepromViewMode = btn.dataset.mode;
+  for (const b of eepromToolbar.querySelectorAll('.eeprom-mode')) {
+    b.classList.toggle('active', b.dataset.mode === eepromViewMode);
+  }
+  renderEepromTable();
+});
+
+eepromTable.addEventListener('click', (ev) => {
+  const td = ev.target.closest('td.eeprom-cell');
+  if (!td || td.querySelector('input') || !eepromData) return;
+  const idx = parseInt(td.dataset.idx, 10);
+  const origVal = eepromData[idx];
+
+  const inp = document.createElement('input');
+  inp.className = 'eeprom-cell-input';
+  inp.value = fmtCell(origVal, eepromViewMode);
+  inp.maxLength = eepromViewMode === 'bin' ? 8 : eepromViewMode === 'dec' ? 3 : 2;
+  td.textContent = '';
+  td.appendChild(inp);
+  inp.focus();
+  inp.select();
+
+  function commit() {
+    const parsed = parseCell(inp.value.trim(), eepromViewMode);
+    if (parsed !== null) eepromData[idx] = parsed;
+    const newVal = eepromData[idx];
+    td.className = 'eeprom-cell' + (newVal !== eepromOriginal[idx] ? ' dirty' : '');
+    td.dataset.idx = idx;
+    td.textContent = fmtCell(newVal, eepromViewMode);
+  }
+
+  inp.addEventListener('blur', commit);
+  inp.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') { inp.blur(); }
+    if (e.key === 'Escape') {
+      td.textContent = fmtCell(origVal, eepromViewMode);
+      td.className = 'eeprom-cell' + (origVal !== eepromOriginal[idx] ? ' dirty' : '');
+    }
+  });
+});
+
+eepromBackupBtn.addEventListener('click', () => {
+  if (!eepromData) return;
+  const blob = new Blob([eepromData], { type: 'application/octet-stream' });
+  const device = devices.get(eepromDeviceId);
+  const name = (device?.name || device?.id || 'device').replace(/[^a-z0-9_-]/gi, '_');
+  const ts = new Date().toISOString().slice(0, 19).replace(/[T:]/g, '-');
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = `eeprom_${name}_${ts}.bin`;
+  a.click();
+  URL.revokeObjectURL(a.href);
+});
+
+eepromRestoreBtn.addEventListener('click', () => {
+  if (!eepromData) return;
+  eepromRestoreInput.value = '';
+  eepromRestoreInput.click();
+});
+
+eepromRefreshBtn.addEventListener('click', async () => {
+  if (!eepromDeviceId) return;
+  eepromRefreshBtn.disabled = true;
+  eepromTable.innerHTML = '';
+  eepromLoading.classList.remove('hidden');
+  setEepromStatus('');
+  try {
+    const r = await fetch(`/api/devices/${encodeURIComponent(eepromDeviceId)}/eeprom`);
+    const body = await r.json();
+    if (!body.ok || !Array.isArray(body.data)) throw new Error(body.error || 'risposta non valida');
+    eepromData = new Uint8Array(body.data);
+    eepromOriginal = new Uint8Array(body.data);
+    eepromLoading.classList.add('hidden');
+    renderEepromTable();
+    setEepromStatus('Dati aggiornati dal dispositivo.', 'ok');
+  } catch (e) {
+    eepromLoading.classList.add('hidden');
+    setEepromStatus('Errore: ' + e.message, 'err');
+  } finally {
+    eepromRefreshBtn.disabled = false;
+  }
+});
+
+eepromRestoreInput.addEventListener('change', () => {
+  const file = eepromRestoreInput.files[0];
+  if (!file || !eepromData) return;
+  if (file.size !== eepromData.length) {
+    setEepromStatus(`Errore: il file è ${file.size} byte, la EEPROM è ${eepromData.length} byte.`, 'err');
+    return;
+  }
+  const reader = new FileReader();
+  reader.onload = (e) => {
+    const buf = new Uint8Array(e.target.result);
+    for (let i = 0; i < buf.length; i++) eepromData[i] = buf[i];
+    renderEepromTable();
+    setEepromStatus(`Backup "${file.name}" importato. Premi Salva per scrivere sul dispositivo.`, 'warn');
+  };
+  reader.readAsArrayBuffer(file);
+});
+
+eepromFormatBtn.addEventListener('click', () => {
+  if (!eepromData) return;
+  if (!confirm('Formattare tutta la EEPROM con 0xFF?\nI valori non ancora salvati andranno persi.')) return;
+  eepromData.fill(0xFF);
+  renderEepromTable();
+  setEepromStatus('EEPROM formattata in locale. Premi Salva per scrivere sul dispositivo.', 'warn');
+});
+
+eepromSaveBtn.addEventListener('click', async () => {
+  if (!eepromData || !eepromDeviceId) return;
+  setEepromStatus('Salvataggio in corso…', '');
+  eepromSaveBtn.disabled = true;
+  try {
+    const r = await fetch(`/api/devices/${encodeURIComponent(eepromDeviceId)}/eeprom`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ data: Array.from(eepromData) }),
+    });
+    const body = await r.json().catch(() => ({}));
+    if (body.ok) {
+      eepromOriginal = new Uint8Array(eepromData);
+      renderEepromTable();
+      setEepromStatus('Salvato con successo.', 'ok');
+    } else {
+      setEepromStatus('Errore: ' + (body.error || 'sconosciuto'), 'err');
+    }
+  } catch (_e) {
+    setEepromStatus('Errore di rete.', 'err');
+  } finally {
+    eepromSaveBtn.disabled = false;
+  }
 });
 
 function upsert(device) {
