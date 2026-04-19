@@ -12,6 +12,10 @@
       <span class="logo-dot"></span>
       <h1>ESPOTADASH</h1>
     </div>
+    <nav class="topnav">
+      <button class="nav-btn active" data-view="devices">Dispositivi</button>
+      <button class="nav-btn" data-view="groups">Gruppi</button>
+    </nav>
     <div class="stats">
       <div><span id="count-online">0</span><small>online</small></div>
       <div><span id="count-offline">0</span><small>offline</small></div>
@@ -25,11 +29,30 @@
   </header>
 
   <main>
-    <div id="empty" class="empty hidden">
-      <h2>Nessun dispositivo registrato</h2>
-      <p>Accendi un ESP8266 con la libreria <code>ESPOTADASH</code> puntata a questo server.</p>
+    <!-- Vista Dispositivi -->
+    <div id="devices-view">
+      <div id="empty" class="empty hidden">
+        <h2>Nessun dispositivo registrato</h2>
+        <p>Accendi un ESP8266 con la libreria <code>ESPOTADASH</code> puntata a questo server.</p>
+      </div>
+      <section id="grid" class="grid"></section>
     </div>
-    <section id="grid" class="grid"></section>
+
+    <!-- Vista Gruppi -->
+    <div id="groups-view" class="hidden">
+      <div class="groups-header">
+        <div>
+          <h2 class="groups-title">Gruppi</h2>
+          <p class="groups-subtitle">Organizza i dispositivi in gruppi</p>
+        </div>
+        <button id="group-add-btn" class="btn-primary">+ Nuovo Gruppo</button>
+      </div>
+      <div id="groups-empty" class="empty hidden">
+        <h2>Nessun gruppo creato</h2>
+        <p>Clicca <strong>+ Nuovo Gruppo</strong> per iniziare.</p>
+      </div>
+      <section id="groups-grid" class="grid"></section>
+    </div>
   </main>
 
   <!-- Modal invio comandi -->
@@ -85,6 +108,39 @@
           <button class="btn btn-save" id="eeprom-save-btn">Salva</button>
           <button class="btn btn-exit" id="eeprom-exit-btn">Esci</button>
         </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Modal Gruppi -->
+  <div id="group-modal" class="modal-overlay hidden" role="dialog" aria-modal="true" aria-labelledby="group-modal-title">
+    <div class="modal">
+      <div class="modal-head">
+        <h3 id="group-modal-title">Nuovo Gruppo</h3>
+        <button class="modal-close" id="group-modal-close" aria-label="Chiudi">&times;</button>
+      </div>
+      <div class="modal-body">
+        <div class="group-form">
+          <div class="gf-row">
+            <label class="gf-label">Nome</label>
+            <input class="gf-input" id="gf-name" type="text" placeholder="Nome del gruppo" autocomplete="off" />
+          </div>
+          <div class="gf-row">
+            <label class="gf-label">Descrizione</label>
+            <input class="gf-input" id="gf-desc" type="text" placeholder="Opzionale" autocomplete="off" />
+          </div>
+          <div class="gf-row gf-devices-row">
+            <label class="gf-label">Dispositivi</label>
+            <div class="gf-device-list" id="gf-device-list">
+              <span class="gf-no-devices">Nessun dispositivo registrato</span>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div class="modal-result hidden" id="group-modal-result"></div>
+      <div class="group-modal-footer">
+        <button class="btn btn-exit" id="group-modal-cancel">Annulla</button>
+        <button class="btn btn-save" id="group-modal-save">Salva</button>
       </div>
     </div>
   </div>

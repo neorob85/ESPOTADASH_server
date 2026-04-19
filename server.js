@@ -11,6 +11,22 @@ const OFFLINE_GRACE_MS = Number(process.env.OFFLINE_GRACE_MS || 3 * 60 * 1000);
 
 const CONFIG_DIR = path.join(__dirname, 'config');
 const DEVICES_FILE = path.join(CONFIG_DIR, 'devices.json');
+const GROUPS_FILE = path.join(CONFIG_DIR, 'groups.json');
+
+function loadGroups() {
+  try {
+    const raw = fs.readFileSync(GROUPS_FILE, 'utf8');
+    const list = JSON.parse(raw);
+    return Array.isArray(list) ? list : [];
+  } catch (_) {
+    return [];
+  }
+}
+
+function saveGroups() {
+  fs.mkdirSync(CONFIG_DIR, { recursive: true });
+  fs.writeFileSync(GROUPS_FILE, JSON.stringify(groups, null, 2));
+}
 
 function loadDevices() {
   try {
@@ -30,6 +46,7 @@ function saveDevices() {
 }
 
 const devices = loadDevices();
+let groups = loadGroups();
 
 const app = express();
 app.use(express.json({ limit: '64kb' }));
@@ -149,6 +166,56 @@ app.post('/api/devices/:id/eeprom-map', (req, res) => {
   res.json({ ok: true });
 });
 
+app.get('/api/groups', (_req, res) => {
+  res.json(groups);
+});
+
+app.post('/api/groups', (req, res) => {
+  const { name, description, deviceIds } = req.body || {};
+  if (!name || !name.trim()) return res.status(400).json({ error: 'missing name' });
+  const now = Date.now();
+  const group = {
+    id: now.toString(36) + Math.random().toString(36).slice(2, 7),
+    name: name.trim(),
+    description: (description || '').trim(),
+    deviceIds: Array.isArray(deviceIds) ? deviceIds : [],
+    createdAt: now,
+    updatedAt: now,
+  };
+  groups.push(group);
+  saveGroups();
+  broadcast({ type: 'group-update', group });
+  res.json({ ok: true, group });
+});
+
+app.put('/api/groups/:id', (req, res) => {
+  const idx = groups.findIndex(g => g.id === req.params.id);
+  if (idx === -1) return res.status(404).json({ error: 'not found' });
+  const { name, description, deviceIds } = req.body || {};
+  if (!name || !name.trim()) return res.status(400).json({ error: 'missing name' });
+  const now = Date.now();
+  groups[idx] = {
+    ...groups[idx],
+    name: name.trim(),
+    description: (description || '').trim(),
+    deviceIds: Array.isArray(deviceIds) ? deviceIds : groups[idx].deviceIds,
+    updatedAt: now,
+  };
+  saveGroups();
+  broadcast({ type: 'group-update', group: groups[idx] });
+  res.json({ ok: true, group: groups[idx] });
+});
+
+app.delete('/api/groups/:id', (req, res) => {
+  const idx = groups.findIndex(g => g.id === req.params.id);
+  if (idx === -1) return res.status(404).json({ error: 'not found' });
+  const id = groups[idx].id;
+  groups.splice(idx, 1);
+  saveGroups();
+  broadcast({ type: 'group-remove', id });
+  res.json({ ok: true });
+});
+
 app.post('/api/devices/:id/command', async (req, res) => {
   const device = devices.get(req.params.id);
   if (!device) return res.status(404).json({ ok: false, error: 'not found' });
@@ -183,6 +250,7 @@ wss.on('connection', (ws) => {
   ws.send(JSON.stringify({
     type: 'snapshot',
     devices: Array.from(devices.values()),
+    groups,
     pingIntervalMs: PING_INTERVAL_MS,
   }));
 });

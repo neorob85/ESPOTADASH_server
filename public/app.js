@@ -284,6 +284,7 @@ cmdModal.addEventListener('click', (ev) => { if (ev.target === cmdModal) closeCm
 document.addEventListener('keydown', (ev) => {
   if (ev.key === 'Escape') {
     if (!eepromModal.classList.contains('hidden')) closeEepromModal();
+    else if (!groupModal.classList.contains('hidden')) closeGroupModal();
     else closeCmdModal();
   }
 });
@@ -1025,6 +1026,168 @@ eepromMapContent.addEventListener('click', (ev) => {
   }
 });
 
+// ---- Gruppi ----
+
+const groupsMap = new Map();
+let currentView = 'devices';
+
+const devicesView  = document.getElementById('devices-view');
+const groupsView   = document.getElementById('groups-view');
+const groupsGrid   = document.getElementById('groups-grid');
+const groupsEmpty  = document.getElementById('groups-empty');
+const groupAddBtn  = document.getElementById('group-add-btn');
+const groupModal   = document.getElementById('group-modal');
+const groupModalTitle  = document.getElementById('group-modal-title');
+const groupModalClose  = document.getElementById('group-modal-close');
+const groupModalCancel = document.getElementById('group-modal-cancel');
+const groupModalSave   = document.getElementById('group-modal-save');
+const groupModalResult = document.getElementById('group-modal-result');
+const gfName       = document.getElementById('gf-name');
+const gfDesc       = document.getElementById('gf-desc');
+const gfDeviceList = document.getElementById('gf-device-list');
+
+let editingGroupId = null;
+
+document.querySelectorAll('.nav-btn').forEach(btn => {
+  btn.addEventListener('click', () => {
+    const view = btn.dataset.view;
+    if (view === currentView) return;
+    currentView = view;
+    document.querySelectorAll('.nav-btn').forEach(b => b.classList.toggle('active', b.dataset.view === view));
+    devicesView.classList.toggle('hidden', view !== 'devices');
+    groupsView.classList.toggle('hidden', view !== 'groups');
+    if (view === 'groups') renderGroups();
+  });
+});
+
+function renderGroups() {
+  const list = Array.from(groupsMap.values()).sort((a, b) => a.name.localeCompare(b.name));
+  groupsEmpty.classList.toggle('hidden', list.length !== 0);
+  groupsGrid.innerHTML = '';
+  for (const g of list) {
+    groupsGrid.insertAdjacentHTML('beforeend', groupCardHtml(g));
+  }
+}
+
+function groupCardHtml(g) {
+  const memberDevices = (g.deviceIds || []).map(id => devices.get(id)).filter(Boolean);
+  const missing = (g.deviceIds || []).length - memberDevices.length;
+  const countLabel = `${(g.deviceIds || []).length} dispositiv${(g.deviceIds || []).length === 1 ? 'o' : 'i'}`;
+  const MAX_CHIPS = 4;
+
+  let chipsHtml = '';
+  if (memberDevices.length === 0 && missing === 0) {
+    chipsHtml = '<span class="group-no-devices">Nessun dispositivo assegnato</span>';
+  } else {
+    const shown = memberDevices.slice(0, MAX_CHIPS);
+    for (const d of shown) {
+      const offlineCls = d.online ? '' : ' offline';
+      chipsHtml += `<span class="group-device-chip${offlineCls}"><span class="chip-dot"></span>${escapeHtml(d.name || d.hostname || d.id)}</span>`;
+    }
+    const extra = memberDevices.length - shown.length + missing;
+    if (extra > 0) chipsHtml += `<span class="group-more">+${extra} altri</span>`;
+  }
+
+  return `<div class="group-card" data-gid="${escapeHtml(g.id)}">
+    <div class="group-card-head">
+      <div>
+        <h3 class="group-card-name">${escapeHtml(g.name)}</h3>
+        ${g.description ? `<p class="group-card-desc">${escapeHtml(g.description)}</p>` : ''}
+      </div>
+      <span class="group-card-count">${countLabel}</span>
+    </div>
+    <div class="group-device-list">${chipsHtml}</div>
+    <div class="group-card-foot">
+      <button class="btn btn-cmd" data-gaction="edit" data-gid="${escapeHtml(g.id)}">Modifica</button>
+      <button class="btn" data-gaction="delete" data-gid="${escapeHtml(g.id)}">Elimina</button>
+    </div>
+  </div>`;
+}
+
+groupsGrid.addEventListener('click', async (ev) => {
+  const btn = ev.target.closest('button[data-gaction]');
+  if (!btn) return;
+  const id = btn.dataset.gid;
+  if (btn.dataset.gaction === 'edit') {
+    openGroupModal(id);
+  } else if (btn.dataset.gaction === 'delete') {
+    const g = groupsMap.get(id);
+    if (!g) return;
+    if (!confirm(`Eliminare il gruppo "${g.name}"?`)) return;
+    await fetch(`/api/groups/${encodeURIComponent(id)}`, { method: 'DELETE' });
+  }
+});
+
+groupAddBtn.addEventListener('click', () => openGroupModal(null));
+
+function openGroupModal(groupId) {
+  editingGroupId = groupId;
+  const g = groupId ? groupsMap.get(groupId) : null;
+  groupModalTitle.textContent = g ? `Modifica — ${g.name}` : 'Nuovo Gruppo';
+  gfName.value = g ? g.name : '';
+  gfDesc.value = g ? (g.description || '') : '';
+  groupModalResult.className = 'modal-result hidden';
+  groupModalResult.textContent = '';
+
+  const devList = Array.from(devices.values()).sort((a, b) =>
+    (a.name || a.id).localeCompare(b.name || b.id));
+  const selectedIds = new Set(g ? g.deviceIds : []);
+
+  if (devList.length === 0) {
+    gfDeviceList.innerHTML = '<span class="gf-no-devices">Nessun dispositivo registrato</span>';
+  } else {
+    gfDeviceList.innerHTML = devList.map(d => `
+      <label class="gf-device-check">
+        <input type="checkbox" value="${escapeHtml(d.id)}" ${selectedIds.has(d.id) ? 'checked' : ''} />
+        <span class="gf-device-check-name">${escapeHtml(d.name || d.hostname || d.id)}</span>
+        <span class="gf-device-check-ip">${escapeHtml(d.ip || '')}</span>
+      </label>`).join('');
+  }
+
+  groupModal.classList.remove('hidden');
+  gfName.focus();
+}
+
+function closeGroupModal() {
+  groupModal.classList.add('hidden');
+  editingGroupId = null;
+}
+
+groupModalClose.addEventListener('click', closeGroupModal);
+groupModalCancel.addEventListener('click', closeGroupModal);
+groupModal.addEventListener('click', (ev) => { if (ev.target === groupModal) closeGroupModal(); });
+
+groupModalSave.addEventListener('click', async () => {
+  const name = gfName.value.trim();
+  if (!name) {
+    groupModalResult.textContent = 'Il nome è obbligatorio.';
+    groupModalResult.className = 'modal-result err';
+    return;
+  }
+  const deviceIds = [...gfDeviceList.querySelectorAll('input[type="checkbox"]:checked')]
+    .map(cb => cb.value);
+  const body = { name, description: gfDesc.value.trim(), deviceIds };
+  try {
+    const url = editingGroupId ? `/api/groups/${encodeURIComponent(editingGroupId)}` : '/api/groups';
+    const method = editingGroupId ? 'PUT' : 'POST';
+    const r = await fetch(url, {
+      method,
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+    const data = await r.json().catch(() => ({}));
+    if (data.ok) {
+      closeGroupModal();
+    } else {
+      groupModalResult.textContent = data.error || 'Errore sconosciuto';
+      groupModalResult.className = 'modal-result err';
+    }
+  } catch (_e) {
+    groupModalResult.textContent = 'Errore di rete';
+    groupModalResult.className = 'modal-result err';
+  }
+});
+
 function upsert(device) {
   const prev = devices.get(device.id);
   if (prev) {
@@ -1056,13 +1219,24 @@ function connect() {
     if (msg.type === 'snapshot') {
       devices.clear();
       for (const d of msg.devices) upsert(d);
+      groupsMap.clear();
+      for (const g of (msg.groups || [])) groupsMap.set(g.id, g);
       render();
+      if (currentView === 'groups') renderGroups();
     } else if (msg.type === 'update') {
       upsert(msg.device);
       render();
+      if (currentView === 'groups') renderGroups();
     } else if (msg.type === 'remove') {
       devices.delete(msg.id);
       render();
+      if (currentView === 'groups') renderGroups();
+    } else if (msg.type === 'group-update') {
+      groupsMap.set(msg.group.id, msg.group);
+      if (currentView === 'groups') renderGroups();
+    } else if (msg.type === 'group-remove') {
+      groupsMap.delete(msg.id);
+      if (currentView === 'groups') renderGroups();
     }
   };
 }
