@@ -1,0 +1,15 @@
+services:
+  espotadash:
+    image: espotadash:1.0.0
+    container_name: espotadash
+    ports:
+      - "3000:3000"
+    volumes:
+      - ./config:/app/config
+      - ./firmware:/app/firmware
+    environment:
+      - PORT=3000
+      - PING_INTERVAL_MS=60000
+      - PING_TIMEOUT_MS=4000
+      - OFFLINE_GRACE_MS=180000
+    restart: unless-stopped
