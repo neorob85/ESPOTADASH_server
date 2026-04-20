@@ -2012,6 +2012,10 @@ function buildFsTreeNode(path, depth) {
   return html;
 }
 
+function fsIsTextFile(name) {
+  return /\.(txt|json|html?|xml|css|js|mjs|ts|md|csv|ini|conf|cfg|ya?ml|log|h|hpp|cpp|c|py|sh|bat|env)$/i.test(name);
+}
+
 function renderFsFiles(data) {
   let html = '';
   for (const dir of (data.dirs || [])) {
@@ -2027,11 +2031,15 @@ function renderFsFiles(data) {
   }
   for (const file of (data.files || [])) {
     const fullPath = fsJoin(fsCurrentPath, file.name);
+    const editBtn = fsIsTextFile(file.name)
+      ? `<button class="btn btn-sm btn-sm-edit" data-action="fs-edit" data-path="${escapeHtml(fullPath)}" data-name="${escapeHtml(file.name)}">Modifica</button>`
+      : '';
     html += `<div class="fs-entry fs-entry-file">
       <span class="fs-entry-icon">📄</span>
       <span class="fs-entry-name">${escapeHtml(file.name)}</span>
       <span class="fs-entry-size">${fmtBytes(file.size)}</span>
       <div class="fs-entry-actions">
+        ${editBtn}
         <a class="btn btn-sm btn-sm-dl" href="/api/devices/${encodeURIComponent(fsDeviceId)}/fs/download?path=${encodeURIComponent(fullPath)}" download="${escapeHtml(file.name)}">Scarica</a>
         <button class="btn btn-sm btn-sm-del" data-action="fs-delete" data-path="${escapeHtml(fullPath)}" data-name="${escapeHtml(file.name)}">Elimina</button>
       </div>
@@ -2059,7 +2067,9 @@ fsFileList.addEventListener('click', async (ev) => {
   if (!btn) return;
   const itemPath = btn.dataset.path;
   const itemName = btn.dataset.name;
-  if (btn.dataset.action === 'fs-delete') {
+  if (btn.dataset.action === 'fs-edit') {
+    await openFsEditModal(itemPath, itemName);
+  } else if (btn.dataset.action === 'fs-delete') {
     if (!confirm(`Eliminare il file "${itemName}"?`)) return;
     await fsDeleteItem(itemPath);
   } else if (btn.dataset.action === 'fs-rmdir') {
@@ -2151,6 +2161,81 @@ async function uploadFsFiles(files) {
   await loadFsInfo();
   setFsStatus(`${files.length} file caricati`);
 }
+
+// File editor modal
+const fsEditModal       = document.getElementById('fs-edit-modal');
+const fsEditContent     = document.getElementById('fs-edit-content');
+const fsEditStatus      = document.getElementById('fs-edit-status');
+const fsEditSaveBtn     = document.getElementById('fs-edit-save');
+const fsEditCancelBtn   = document.getElementById('fs-edit-cancel');
+const fsEditModalClose  = document.getElementById('fs-edit-modal-close');
+const fsEditModalTitle  = document.getElementById('fs-edit-modal-title');
+
+let fsEditCurrentPath = null;
+
+function setFsEditStatus(msg, err = false) {
+  fsEditStatus.textContent = msg;
+  fsEditStatus.className = 'fs-status' + (err ? ' err' : msg ? ' ok' : '');
+}
+
+async function openFsEditModal(filePath, fileName) {
+  fsEditCurrentPath = filePath;
+  fsEditModalTitle.textContent = `Modifica: ${fileName}`;
+  fsEditContent.value = '';
+  setFsEditStatus('Caricamento…');
+  fsEditSaveBtn.disabled = true;
+  fsEditModal.classList.remove('hidden');
+
+  try {
+    const r = await fetch(`/api/devices/${encodeURIComponent(fsDeviceId)}/fs/download?path=${encodeURIComponent(filePath)}`);
+    if (!r.ok) throw new Error(`HTTP ${r.status}`);
+    const text = await r.text();
+    fsEditContent.value = text;
+    setFsEditStatus('');
+    fsEditSaveBtn.disabled = false;
+  } catch (e) {
+    setFsEditStatus(`Errore lettura: ${e.message}`, true);
+  }
+}
+
+function closeFsEditModal() {
+  fsEditModal.classList.add('hidden');
+  fsEditCurrentPath = null;
+  fsEditContent.value = '';
+  setFsEditStatus('');
+}
+
+fsEditSaveBtn.addEventListener('click', async () => {
+  if (!fsEditCurrentPath) return;
+  fsEditSaveBtn.disabled = true;
+  setFsEditStatus('Salvataggio…');
+  const blob = new Blob([fsEditContent.value], { type: 'text/plain' });
+  const fileName = fsEditCurrentPath.split('/').pop();
+  const form = new FormData();
+  form.append('file', blob, fileName);
+  try {
+    const r = await fetch(`/api/devices/${encodeURIComponent(fsDeviceId)}/fs/upload?path=${encodeURIComponent(fsEditCurrentPath)}`, {
+      method: 'POST',
+      body: form,
+    });
+    const d = await r.json().catch(() => ({}));
+    if (r.ok && d.ok !== false) {
+      setFsEditStatus('Salvato');
+      delete fsFolderCache[fsCurrentPath];
+      await loadFsPath(fsCurrentPath);
+      await loadFsInfo();
+    } else {
+      setFsEditStatus(d.error || 'Errore salvataggio', true);
+    }
+  } catch (_) {
+    setFsEditStatus('Errore di rete', true);
+  }
+  fsEditSaveBtn.disabled = false;
+});
+
+fsEditCancelBtn.addEventListener('click', closeFsEditModal);
+fsEditModalClose.addEventListener('click', closeFsEditModal);
+fsEditModal.addEventListener('click', (ev) => { if (ev.target === fsEditModal) closeFsEditModal(); });
 
 // Close
 fsModalClose.addEventListener('click', closeFsModal);

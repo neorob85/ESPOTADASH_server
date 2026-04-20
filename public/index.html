@@ -363,6 +363,24 @@
     </div>
   </div>
 
+  <!-- Modal Editor file LittleFS -->
+  <div id="fs-edit-modal" class="modal-overlay hidden" role="dialog" aria-modal="true" aria-labelledby="fs-edit-modal-title">
+    <div class="modal modal-fs-edit">
+      <div class="modal-head">
+        <h3 id="fs-edit-modal-title">Modifica file</h3>
+        <button class="modal-close" id="fs-edit-modal-close" aria-label="Chiudi">&times;</button>
+      </div>
+      <div class="fs-edit-body">
+        <textarea id="fs-edit-content" spellcheck="false" autocomplete="off" autocorrect="off" autocapitalize="off"></textarea>
+      </div>
+      <div class="fs-footer">
+        <span class="fs-status" id="fs-edit-status"></span>
+        <button class="btn" id="fs-edit-cancel">Annulla</button>
+        <button class="btn btn-save" id="fs-edit-save">Salva</button>
+      </div>
+    </div>
+  </div>
+
   <script src="app.js"></script>
 </body>
 </html>
