@@ -192,6 +192,7 @@ function cardHtml(d) {
       <div class="foot-actions">
         <button class="btn btn-cmd" data-action="command" data-id="${escapeHtml(d.id)}">Comandi</button>
         <button class="btn btn-eeprom" data-action="eeprom" data-id="${escapeHtml(d.id)}">EEPROM</button>
+        ${d.littlefs ? `<button class="btn btn-fs" data-action="filesystem" data-id="${escapeHtml(d.id)}">Filesystem</button>` : ''}
         <button class="btn btn-ota" data-action="ota" data-id="${escapeHtml(d.id)}">OTA</button>
         <button class="btn" data-action="remove" data-id="${escapeHtml(d.id)}">Rimuovi</button>
       </div>
@@ -219,6 +220,10 @@ grid.addEventListener('click', async (ev) => {
 
   if (btn.dataset.action === 'ota') {
     openOtaModal(devices.get(id));
+  }
+
+  if (btn.dataset.action === 'filesystem') {
+    openFsModal(devices.get(id));
   }
 });
 
@@ -289,6 +294,7 @@ cmdModal.addEventListener('click', (ev) => { if (ev.target === cmdModal) closeCm
 document.addEventListener('keydown', (ev) => {
   if (ev.key === 'Escape') {
     if (!eepromModal.classList.contains('hidden')) closeEepromModal();
+    else if (!fsModal.classList.contains('hidden')) closeFsModal();
     else if (!groupModal.classList.contains('hidden')) closeGroupModal();
     else if (!otaModal.classList.contains('hidden')) closeOtaModal();
     else if (!fwEditModal.classList.contains('hidden')) closeFwEditModal();
@@ -1901,5 +1907,254 @@ fwFlashStart.addEventListener('click', async () => {
 fwFlashClose.addEventListener('click', closeFwFlashModal);
 fwFlashCancel.addEventListener('click', closeFwFlashModal);
 fwFlashModal.addEventListener('click', (ev) => { if (ev.target === fwFlashModal) closeFwFlashModal(); });
+
+// ---- Modal Filesystem ----
+
+const fsModal       = document.getElementById('fs-modal');
+const fsModalClose  = document.getElementById('fs-modal-close');
+const fsModalExit   = document.getElementById('fs-modal-exit');
+const fsTree        = document.getElementById('fs-tree');
+const fsFileList    = document.getElementById('fs-file-list');
+const fsStatus      = document.getElementById('fs-status');
+const fsUsage       = document.getElementById('fs-usage');
+const fsPathEl      = document.getElementById('fs-path');
+const fsUploadBtn   = document.getElementById('fs-upload-btn');
+const fsUploadInput = document.getElementById('fs-upload-input');
+const fsMkdirBtn    = document.getElementById('fs-mkdir-btn');
+const fsDropZone    = document.getElementById('fs-drop-zone');
+const fsDropOverlay = document.getElementById('fs-drop-overlay');
+
+let fsDeviceId    = null;
+let fsCurrentPath = '/';
+let fsFolderCache = {};
+
+function fsJoin(base, name) {
+  return base === '/' ? '/' + name : base + '/' + name;
+}
+
+async function openFsModal(device) {
+  if (!device) return;
+  fsDeviceId    = device.id;
+  fsCurrentPath = '/';
+  fsFolderCache = {};
+  fsModalTitle.textContent = `Filesystem — ${device.name || device.id}`;
+  fsStatus.textContent = '';
+  fsUsage.textContent  = '';
+  fsPathEl.textContent = '/';
+  fsTree.innerHTML     = '';
+  fsFileList.innerHTML = '';
+  fsModal.classList.remove('hidden');
+  await Promise.all([loadFsInfo(), loadFsPath('/')]);
+}
+
+// fsModalTitle reuses the existing global id from cmd-modal — use a local ref
+const fsModalTitle = document.getElementById('fs-modal-title');
+
+function closeFsModal() {
+  fsModal.classList.add('hidden');
+  fsDeviceId = null;
+}
+
+async function loadFsInfo() {
+  try {
+    const r = await fetch(`/api/devices/${encodeURIComponent(fsDeviceId)}/fs/info`);
+    const d = await r.json().catch(() => ({}));
+    if (d.ok) {
+      const pct = Math.round((d.usedBytes / d.totalBytes) * 100);
+      fsUsage.textContent = `${fmtBytes(d.usedBytes)} / ${fmtBytes(d.totalBytes)} (${pct}%)`;
+    }
+  } catch (_) {}
+}
+
+async function loadFsPath(path) {
+  fsCurrentPath    = path;
+  fsPathEl.textContent = path;
+  setFsStatus('Caricamento…');
+  try {
+    const r = await fetch(`/api/devices/${encodeURIComponent(fsDeviceId)}/fs/list?path=${encodeURIComponent(path)}`);
+    const d = await r.json().catch(() => ({}));
+    if (!d.ok) { setFsStatus(d.error || 'Errore', true); return; }
+    fsFolderCache[path] = d;
+    renderFsTree();
+    renderFsFiles(d);
+    setFsStatus('');
+  } catch (_) {
+    setFsStatus('Errore di rete', true);
+  }
+}
+
+function setFsStatus(msg, isErr) {
+  fsStatus.textContent = msg;
+  fsStatus.className   = 'fs-status' + (isErr ? ' err' : '');
+}
+
+function renderFsTree() {
+  let html = '<ul class="fs-tree-list">';
+  html += buildFsTreeNode('/', 0);
+  html += '</ul>';
+  fsTree.innerHTML = html;
+}
+
+function buildFsTreeNode(path, depth) {
+  const isSelected = path === fsCurrentPath;
+  const name       = path === '/' ? '/ (root)' : path.split('/').pop();
+  const indent     = depth * 14;
+  let html = `<li class="fs-tree-item${isSelected ? ' selected' : ''}" data-path="${escapeHtml(path)}" style="padding-left:${indent + 8}px">`;
+  html += `<span class="fs-tree-icon">📁</span><span class="fs-tree-name">${escapeHtml(name)}</span></li>`;
+  const cached = fsFolderCache[path];
+  if (cached && cached.dirs && cached.dirs.length > 0) {
+    html += '<ul class="fs-tree-list">';
+    for (const dir of cached.dirs) {
+      html += buildFsTreeNode(fsJoin(path, dir), depth + 1);
+    }
+    html += '</ul>';
+  }
+  return html;
+}
+
+function renderFsFiles(data) {
+  let html = '';
+  for (const dir of (data.dirs || [])) {
+    const fullPath = fsJoin(fsCurrentPath, dir);
+    html += `<div class="fs-entry fs-entry-dir" data-path="${escapeHtml(fullPath)}">
+      <span class="fs-entry-icon">📁</span>
+      <span class="fs-entry-name">${escapeHtml(dir)}</span>
+      <span class="fs-entry-size">—</span>
+      <div class="fs-entry-actions">
+        <button class="btn btn-sm btn-sm-del" data-action="fs-rmdir" data-path="${escapeHtml(fullPath)}" data-name="${escapeHtml(dir)}">Elimina</button>
+      </div>
+    </div>`;
+  }
+  for (const file of (data.files || [])) {
+    const fullPath = fsJoin(fsCurrentPath, file.name);
+    html += `<div class="fs-entry fs-entry-file">
+      <span class="fs-entry-icon">📄</span>
+      <span class="fs-entry-name">${escapeHtml(file.name)}</span>
+      <span class="fs-entry-size">${fmtBytes(file.size)}</span>
+      <div class="fs-entry-actions">
+        <a class="btn btn-sm btn-sm-dl" href="/api/devices/${encodeURIComponent(fsDeviceId)}/fs/download?path=${encodeURIComponent(fullPath)}" download="${escapeHtml(file.name)}">Scarica</a>
+        <button class="btn btn-sm btn-sm-del" data-action="fs-delete" data-path="${escapeHtml(fullPath)}" data-name="${escapeHtml(file.name)}">Elimina</button>
+      </div>
+    </div>`;
+  }
+  if (!html) html = '<div class="fs-empty">Cartella vuota — trascina qui i file per caricarli</div>';
+  fsFileList.innerHTML = html;
+}
+
+// Tree navigation
+fsTree.addEventListener('click', async (ev) => {
+  const item = ev.target.closest('.fs-tree-item');
+  if (!item) return;
+  await loadFsPath(item.dataset.path);
+});
+
+// File list actions
+fsFileList.addEventListener('click', async (ev) => {
+  const dir = ev.target.closest('.fs-entry-dir');
+  if (dir && !ev.target.closest('button')) {
+    await loadFsPath(dir.dataset.path);
+    return;
+  }
+  const btn = ev.target.closest('button[data-action]');
+  if (!btn) return;
+  const itemPath = btn.dataset.path;
+  const itemName = btn.dataset.name;
+  if (btn.dataset.action === 'fs-delete') {
+    if (!confirm(`Eliminare il file "${itemName}"?`)) return;
+    await fsDeleteItem(itemPath);
+  } else if (btn.dataset.action === 'fs-rmdir') {
+    if (!confirm(`Eliminare la cartella "${itemName}" e tutto il suo contenuto?`)) return;
+    await fsDeleteItem(itemPath);
+  }
+});
+
+async function fsDeleteItem(itemPath) {
+  setFsStatus('Eliminazione…');
+  try {
+    const r = await fetch(`/api/devices/${encodeURIComponent(fsDeviceId)}/fs/delete?path=${encodeURIComponent(itemPath)}`, { method: 'DELETE' });
+    const d = await r.json().catch(() => ({}));
+    if (d.ok) {
+      delete fsFolderCache[fsCurrentPath];
+      delete fsFolderCache[itemPath];
+      await loadFsPath(fsCurrentPath);
+      await loadFsInfo();
+      setFsStatus('Eliminato');
+    } else {
+      setFsStatus(d.error || 'Errore eliminazione', true);
+    }
+  } catch (_) { setFsStatus('Errore di rete', true); }
+}
+
+// Mkdir
+fsMkdirBtn.addEventListener('click', async () => {
+  const name = prompt('Nome della nuova cartella:');
+  if (!name || !name.trim()) return;
+  const newPath = fsJoin(fsCurrentPath, name.trim().replace(/[/\\]/g, '_'));
+  setFsStatus('Creazione cartella…');
+  try {
+    const r = await fetch(`/api/devices/${encodeURIComponent(fsDeviceId)}/fs/mkdir?path=${encodeURIComponent(newPath)}`, { method: 'POST' });
+    const d = await r.json().catch(() => ({}));
+    if (d.ok) {
+      delete fsFolderCache[fsCurrentPath];
+      await loadFsPath(fsCurrentPath);
+      setFsStatus(`Cartella creata: ${newPath}`);
+    } else {
+      setFsStatus(d.error || 'Errore mkdir', true);
+    }
+  } catch (_) { setFsStatus('Errore di rete', true); }
+});
+
+// Upload via button
+fsUploadBtn.addEventListener('click', () => { fsUploadInput.value = ''; fsUploadInput.click(); });
+fsUploadInput.addEventListener('change', () => {
+  if (fsUploadInput.files.length > 0) uploadFsFiles([...fsUploadInput.files]);
+});
+
+// Drag & drop
+fsDropZone.addEventListener('dragover', (ev) => {
+  ev.preventDefault();
+  fsDropZone.classList.add('drag-over');
+  fsDropOverlay.classList.remove('hidden');
+});
+fsDropZone.addEventListener('dragleave', (ev) => {
+  if (ev.relatedTarget && fsDropZone.contains(ev.relatedTarget)) return;
+  fsDropZone.classList.remove('drag-over');
+  fsDropOverlay.classList.add('hidden');
+});
+fsDropZone.addEventListener('drop', (ev) => {
+  ev.preventDefault();
+  fsDropZone.classList.remove('drag-over');
+  fsDropOverlay.classList.add('hidden');
+  if (ev.dataTransfer.files.length > 0) uploadFsFiles([...ev.dataTransfer.files]);
+});
+
+async function uploadFsFiles(files) {
+  for (const file of files) {
+    const filePath = fsJoin(fsCurrentPath, file.name);
+    setFsStatus(`Caricamento: ${file.name} (${fmtBytes(file.size)})…`);
+    const form = new FormData();
+    form.append('file', file, file.name);
+    try {
+      const r = await fetch(`/api/devices/${encodeURIComponent(fsDeviceId)}/fs/upload?path=${encodeURIComponent(filePath)}`, {
+        method: 'POST',
+        body: form,
+      });
+      const d = await r.json().catch(() => ({}));
+      if (!r.ok || d.ok === false) {
+        setFsStatus(`Errore: ${d.error || 'upload fallito'}`, true);
+        return;
+      }
+    } catch (_) { setFsStatus('Errore di rete', true); return; }
+  }
+  delete fsFolderCache[fsCurrentPath];
+  await loadFsPath(fsCurrentPath);
+  await loadFsInfo();
+  setFsStatus(`${files.length} file caricati`);
+}
+
+// Close
+fsModalClose.addEventListener('click', closeFsModal);
+fsModalExit.addEventListener('click', closeFsModal);
+fsModal.addEventListener('click', (ev) => { if (ev.target === fsModal) closeFsModal(); });
 
 connect();

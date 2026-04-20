@@ -424,6 +424,123 @@ app.post('/api/devices/:id/command', async (req, res) => {
   }
 });
 
+// ---- LittleFS proxy ----
+
+app.get('/api/devices/:id/fs/info', async (req, res) => {
+  const device = devices.get(req.params.id);
+  if (!device) return res.status(404).json({ ok: false, error: 'not found' });
+  const url = `http://${device.ip}:${device.port || 80}/fs/info`;
+  const ctrl = new AbortController();
+  const t = setTimeout(() => ctrl.abort(), PING_TIMEOUT_MS * 3);
+  try {
+    const r = await fetch(url, { signal: ctrl.signal });
+    const body = await r.json().catch(() => ({}));
+    res.status(r.ok ? 200 : 502).json(body);
+  } catch (_) { res.status(504).json({ ok: false, error: 'device unreachable' }); }
+  finally { clearTimeout(t); }
+});
+
+app.get('/api/devices/:id/fs/list', async (req, res) => {
+  const device = devices.get(req.params.id);
+  if (!device) return res.status(404).json({ ok: false, error: 'not found' });
+  const fsPath = req.query.path || '/';
+  const url = `http://${device.ip}:${device.port || 80}/fs/list?path=${encodeURIComponent(fsPath)}`;
+  const ctrl = new AbortController();
+  const t = setTimeout(() => ctrl.abort(), PING_TIMEOUT_MS * 3);
+  try {
+    const r = await fetch(url, { signal: ctrl.signal });
+    const body = await r.json().catch(() => ({}));
+    res.status(r.ok ? 200 : 502).json(body);
+  } catch (_) { res.status(504).json({ ok: false, error: 'device unreachable' }); }
+  finally { clearTimeout(t); }
+});
+
+app.get('/api/devices/:id/fs/download', (req, res) => {
+  const device = devices.get(req.params.id);
+  if (!device) return res.status(404).json({ ok: false, error: 'not found' });
+  const fsPath = req.query.path || '/';
+  const proxyReq = http.get({
+    hostname: device.ip,
+    port: device.port || 80,
+    path: `/fs/download?path=${encodeURIComponent(fsPath)}`,
+  }, (proxyRes) => {
+    if (proxyRes.statusCode !== 200) {
+      let body = '';
+      proxyRes.on('data', c => { body += c; });
+      proxyRes.on('end', () => {
+        if (!res.headersSent)
+          try { res.status(proxyRes.statusCode).json(JSON.parse(body)); }
+          catch (_) { res.status(proxyRes.statusCode).send(body); }
+      });
+      return;
+    }
+    const cd = proxyRes.headers['content-disposition'];
+    if (cd) res.set('Content-Disposition', cd);
+    else res.set('Content-Disposition', `attachment; filename="${path.basename(fsPath)}"`);
+    res.set('Content-Type', 'application/octet-stream');
+    proxyRes.pipe(res);
+  });
+  proxyReq.setTimeout(10000, () => { proxyReq.destroy(); if (!res.headersSent) res.status(504).json({ ok: false, error: 'timeout' }); });
+  proxyReq.on('error', () => { if (!res.headersSent) res.status(504).json({ ok: false, error: 'device unreachable' }); });
+});
+
+app.delete('/api/devices/:id/fs/delete', async (req, res) => {
+  const device = devices.get(req.params.id);
+  if (!device) return res.status(404).json({ ok: false, error: 'not found' });
+  const fsPath = req.query.path || '/';
+  const url = `http://${device.ip}:${device.port || 80}/fs/delete?path=${encodeURIComponent(fsPath)}`;
+  const ctrl = new AbortController();
+  const t = setTimeout(() => ctrl.abort(), PING_TIMEOUT_MS * 3);
+  try {
+    const r = await fetch(url, { method: 'DELETE', signal: ctrl.signal });
+    const body = await r.json().catch(() => ({}));
+    res.status(r.ok ? 200 : 502).json(body);
+  } catch (_) { res.status(504).json({ ok: false, error: 'device unreachable' }); }
+  finally { clearTimeout(t); }
+});
+
+app.post('/api/devices/:id/fs/mkdir', async (req, res) => {
+  const device = devices.get(req.params.id);
+  if (!device) return res.status(404).json({ ok: false, error: 'not found' });
+  const fsPath = req.query.path || '/';
+  const url = `http://${device.ip}:${device.port || 80}/fs/mkdir?path=${encodeURIComponent(fsPath)}`;
+  const ctrl = new AbortController();
+  const t = setTimeout(() => ctrl.abort(), PING_TIMEOUT_MS * 3);
+  try {
+    const r = await fetch(url, { method: 'POST', signal: ctrl.signal });
+    const body = await r.json().catch(() => ({}));
+    res.status(r.ok ? 200 : 502).json(body);
+  } catch (_) { res.status(504).json({ ok: false, error: 'device unreachable' }); }
+  finally { clearTimeout(t); }
+});
+
+app.post('/api/devices/:id/fs/upload', (req, res) => {
+  const device = devices.get(req.params.id);
+  if (!device) return res.status(404).json({ ok: false, error: 'not found' });
+  const fsPath = req.query.path || '/';
+  const proxyReq = http.request({
+    hostname: device.ip,
+    port: device.port || 80,
+    path: `/fs/upload?path=${encodeURIComponent(fsPath)}`,
+    method: 'POST',
+    headers: {
+      'Content-Type': req.headers['content-type'] || 'multipart/form-data',
+      ...(req.headers['content-length'] ? { 'Content-Length': req.headers['content-length'] } : {}),
+    },
+  }, (proxyRes) => {
+    let body = '';
+    proxyRes.on('data', c => { body += c; });
+    proxyRes.on('end', () => {
+      if (!res.headersSent)
+        try { res.status(proxyRes.statusCode).json(JSON.parse(body)); }
+        catch (_) { res.status(proxyRes.statusCode).send(body); }
+    });
+  });
+  proxyReq.setTimeout(30000, () => { proxyReq.destroy(); if (!res.headersSent) res.status(504).json({ ok: false, error: 'timeout' }); });
+  proxyReq.on('error', () => { if (!res.headersSent) res.status(504).json({ ok: false, error: 'device unreachable' }); });
+  req.pipe(proxyReq);
+});
+
 const server = http.createServer(app);
 const wss = new WebSocketServer({ server });
 

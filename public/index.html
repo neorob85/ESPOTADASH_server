@@ -327,6 +327,42 @@
     </div>
   </div>
 
+  <!-- Modal Filesystem LittleFS -->
+  <div id="fs-modal" class="modal-overlay hidden" role="dialog" aria-modal="true" aria-labelledby="fs-modal-title">
+    <div class="modal modal-fs">
+      <div class="modal-head">
+        <h3 id="fs-modal-title">Filesystem</h3>
+        <button class="modal-close" id="fs-modal-close" aria-label="Chiudi">&times;</button>
+      </div>
+      <div class="fs-toolbar">
+        <span class="fs-path" id="fs-path">/</span>
+        <div class="fs-toolbar-btns">
+          <button class="btn" id="fs-mkdir-btn">+ Cartella</button>
+          <button class="btn btn-fs-upload" id="fs-upload-btn">&#8657; Carica</button>
+          <input type="file" id="fs-upload-input" style="display:none" multiple />
+        </div>
+        <span class="fs-usage" id="fs-usage"></span>
+      </div>
+      <div class="fs-body">
+        <div class="fs-tree-panel">
+          <div class="fs-tree" id="fs-tree"></div>
+        </div>
+        <div class="fs-content-panel">
+          <div class="fs-drop-zone" id="fs-drop-zone">
+            <div class="fs-file-list" id="fs-file-list"></div>
+            <div class="fs-drop-overlay hidden" id="fs-drop-overlay">
+              <span>Rilascia per caricare</span>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div class="fs-footer">
+        <span class="fs-status" id="fs-status"></span>
+        <button class="btn btn-exit" id="fs-modal-exit">Chiudi</button>
+      </div>
+    </div>
+  </div>
+
   <script src="app.js"></script>
 </body>
 </html>
