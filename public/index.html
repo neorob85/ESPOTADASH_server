@@ -15,6 +15,7 @@
     <nav class="topnav">
       <button class="nav-btn active" data-view="devices">Dispositivi</button>
       <button class="nav-btn" data-view="groups">Gruppi</button>
+      <button class="nav-btn" data-view="firmware">Firmware</button>
     </nav>
     <div class="stats">
       <div><span id="count-online">0</span><small>online</small></div>
@@ -36,6 +37,22 @@
         <p>Accendi un ESP8266 con la libreria <code>ESPOTADASH</code> puntata a questo server.</p>
       </div>
       <section id="grid" class="grid"></section>
+    </div>
+
+    <!-- Vista Firmware -->
+    <div id="firmware-view" class="hidden">
+      <div class="groups-header">
+        <div>
+          <h2 class="groups-title">Gestione Firmware</h2>
+          <p class="groups-subtitle">Carica e associa firmware ai dispositivi e ai gruppi</p>
+        </div>
+        <button id="fw-upload-btn" class="btn-primary">+ Carica Firmware</button>
+      </div>
+      <div id="fw-empty" class="empty hidden">
+        <h2>Nessun firmware caricato</h2>
+        <p>Clicca <strong>+ Carica Firmware</strong> per iniziare.</p>
+      </div>
+      <div id="fw-list"></div>
     </div>
 
     <!-- Vista Gruppi -->
@@ -171,6 +188,141 @@
       <div class="group-modal-footer">
         <button class="btn btn-exit" id="ota-cancel-btn">Annulla</button>
         <button class="btn btn-save" id="ota-flash-btn" disabled>Flash</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Modal Carica Firmware -->
+  <div id="fw-modal" class="modal-overlay hidden" role="dialog" aria-modal="true" aria-labelledby="fw-modal-title">
+    <div class="modal modal-fw">
+      <div class="modal-head">
+        <h3 id="fw-modal-title">Carica Firmware</h3>
+        <button class="modal-close" id="fw-modal-close" aria-label="Chiudi">&times;</button>
+      </div>
+      <div class="modal-body fw-modal-body">
+        <div class="ota-drop" id="fw-drop">
+          <input type="file" id="fw-file-input" accept=".bin" style="display:none" />
+          <div class="ota-drop-label" id="fw-drop-label">
+            <svg viewBox="0 0 24 24" width="32" height="32" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" style="margin-bottom:8px;opacity:0.5"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+            <span>Trascina il file <code>.bin</code> qui oppure</span>
+            <button class="btn" id="fw-browse-btn" type="button">Sfoglia&hellip;</button>
+          </div>
+          <div class="ota-file-info hidden" id="fw-file-info"></div>
+        </div>
+        <div class="ota-progress hidden" id="fw-progress">
+          <div class="ota-progress-bar"><span id="fw-progress-fill"></span></div>
+          <span id="fw-progress-text">0%</span>
+        </div>
+        <div class="fw-form">
+          <div class="gf-row">
+            <label class="gf-label">Versione *</label>
+            <input class="gf-input" id="fw-version" type="text" placeholder="es. 1.0.0" autocomplete="off" />
+          </div>
+          <div class="gf-row">
+            <label class="gf-label">Target *</label>
+            <select class="gf-input" id="fw-target">
+              <option value="esp8266">ESP8266</option>
+              <option value="esp32">ESP32</option>
+            </select>
+          </div>
+          <div class="gf-row">
+            <label class="gf-label">Data</label>
+            <input class="gf-input" id="fw-date" type="date" />
+          </div>
+          <div class="gf-row">
+            <label class="gf-label">Descrizione</label>
+            <input class="gf-input" id="fw-desc" type="text" placeholder="Opzionale" autocomplete="off" />
+          </div>
+          <div class="gf-row gf-devices-row">
+            <label class="gf-label">Gruppi</label>
+            <div class="gf-device-list" id="fw-group-list">
+              <span class="gf-no-devices">Nessun gruppo disponibile</span>
+            </div>
+          </div>
+          <div class="gf-row gf-devices-row">
+            <label class="gf-label">Dispositivi</label>
+            <div class="gf-device-list" id="fw-device-list">
+              <span class="gf-no-devices">Nessun dispositivo registrato</span>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div class="modal-result hidden" id="fw-modal-result"></div>
+      <div class="group-modal-footer">
+        <button class="btn btn-exit" id="fw-modal-cancel">Annulla</button>
+        <button class="btn btn-save" id="fw-modal-upload" disabled>Carica</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Modal Flash Firmware -->
+  <div id="fw-flash-modal" class="modal-overlay hidden" role="dialog" aria-modal="true" aria-labelledby="fw-flash-modal-title">
+    <div class="modal modal-fw-flash">
+      <div class="modal-head">
+        <h3 id="fw-flash-modal-title">Flash Firmware</h3>
+        <button class="modal-close" id="fw-flash-modal-close" aria-label="Chiudi">&times;</button>
+      </div>
+      <div class="modal-body fw-flash-body">
+        <div class="fw-flash-info" id="fw-flash-info"></div>
+        <div class="fw-flash-targets" id="fw-flash-targets"></div>
+        <div class="fw-flash-log hidden" id="fw-flash-log"></div>
+      </div>
+      <div class="group-modal-footer">
+        <button class="btn btn-exit" id="fw-flash-cancel">Annulla</button>
+        <button class="btn btn-ota" id="fw-flash-start" disabled>
+          <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:middle;margin-right:4px"><polygon points="5 3 19 12 5 21 5 3"/></svg>
+          Flash su selezionati
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Modal Modifica Firmware -->
+  <div id="fw-edit-modal" class="modal-overlay hidden" role="dialog" aria-modal="true" aria-labelledby="fw-edit-modal-title">
+    <div class="modal modal-fw">
+      <div class="modal-head">
+        <h3 id="fw-edit-modal-title">Modifica Firmware</h3>
+        <button class="modal-close" id="fw-edit-modal-close" aria-label="Chiudi">&times;</button>
+      </div>
+      <div class="modal-body fw-modal-body">
+        <div class="fw-form">
+          <div class="gf-row">
+            <label class="gf-label">Versione *</label>
+            <input class="gf-input" id="fw-edit-version" type="text" autocomplete="off" />
+          </div>
+          <div class="gf-row">
+            <label class="gf-label">Target *</label>
+            <select class="gf-input" id="fw-edit-target">
+              <option value="esp8266">ESP8266</option>
+              <option value="esp32">ESP32</option>
+            </select>
+          </div>
+          <div class="gf-row">
+            <label class="gf-label">Data</label>
+            <input class="gf-input" id="fw-edit-date" type="date" />
+          </div>
+          <div class="gf-row">
+            <label class="gf-label">Descrizione</label>
+            <input class="gf-input" id="fw-edit-desc" type="text" autocomplete="off" />
+          </div>
+          <div class="gf-row gf-devices-row">
+            <label class="gf-label">Gruppi</label>
+            <div class="gf-device-list" id="fw-edit-group-list">
+              <span class="gf-no-devices">Nessun gruppo disponibile</span>
+            </div>
+          </div>
+          <div class="gf-row gf-devices-row">
+            <label class="gf-label">Dispositivi</label>
+            <div class="gf-device-list" id="fw-edit-device-list">
+              <span class="gf-no-devices">Nessun dispositivo registrato</span>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div class="modal-result hidden" id="fw-edit-modal-result"></div>
+      <div class="group-modal-footer">
+        <button class="btn btn-exit" id="fw-edit-modal-cancel">Annulla</button>
+        <button class="btn btn-save" id="fw-edit-modal-save">Salva</button>
       </div>
     </div>
   </div>

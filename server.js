@@ -12,6 +12,8 @@ const OFFLINE_GRACE_MS = Number(process.env.OFFLINE_GRACE_MS || 3 * 60 * 1000);
 const CONFIG_DIR = path.join(__dirname, 'config');
 const DEVICES_FILE = path.join(CONFIG_DIR, 'devices.json');
 const GROUPS_FILE = path.join(CONFIG_DIR, 'groups.json');
+const FIRMWARE_FILE = path.join(CONFIG_DIR, 'firmware.json');
+const FIRMWARE_DIR = path.join(__dirname, 'firmware');
 
 function loadGroups() {
   try {
@@ -26,6 +28,21 @@ function loadGroups() {
 function saveGroups() {
   fs.mkdirSync(CONFIG_DIR, { recursive: true });
   fs.writeFileSync(GROUPS_FILE, JSON.stringify(groups, null, 2));
+}
+
+function loadFirmware() {
+  try {
+    const raw = fs.readFileSync(FIRMWARE_FILE, 'utf8');
+    const list = JSON.parse(raw);
+    return Array.isArray(list) ? list : [];
+  } catch (_) {
+    return [];
+  }
+}
+
+function saveFirmware() {
+  fs.mkdirSync(CONFIG_DIR, { recursive: true });
+  fs.writeFileSync(FIRMWARE_FILE, JSON.stringify(firmwareList, null, 2));
 }
 
 function loadDevices() {
@@ -47,6 +64,7 @@ function saveDevices() {
 
 const devices = loadDevices();
 let groups = loadGroups();
+let firmwareList = loadFirmware();
 
 const app = express();
 app.use(express.json({ limit: '64kb' }));
@@ -213,6 +231,128 @@ app.delete('/api/groups/:id', (req, res) => {
   groups.splice(idx, 1);
   saveGroups();
   broadcast({ type: 'group-remove', id });
+  res.json({ ok: true });
+});
+
+app.get('/api/firmware', (_req, res) => {
+  res.json(firmwareList);
+});
+
+app.post('/api/firmware', (req, res) => {
+  const { version, target, date, description, groups: fwGroups, devices: fwDevices, originalName } = req.body || {};
+  if (!version || !version.trim()) return res.status(400).json({ error: 'missing version' });
+  if (!target || !['esp8266', 'esp32'].includes(target)) return res.status(400).json({ error: 'invalid target' });
+  const now = Date.now();
+  const uid = now.toString(36) + Math.random().toString(36).slice(2, 7);
+  const filename = uid + '.bin';
+  const entry = {
+    id: uid,
+    filename,
+    originalName: originalName || filename,
+    version: version.trim(),
+    target,
+    date: date || new Date().toISOString().slice(0, 10),
+    description: (description || '').trim(),
+    groups: Array.isArray(fwGroups) ? fwGroups : [],
+    devices: Array.isArray(fwDevices) ? fwDevices : [],
+    size: 0,
+    uploaded: false,
+    createdAt: now,
+  };
+  firmwareList.push(entry);
+  saveFirmware();
+  res.json({ ok: true, id: uid, filename });
+});
+
+app.put('/api/firmware/:id/file', express.raw({ type: '*/*', limit: '16mb' }), (req, res) => {
+  const entry = firmwareList.find(f => f.id === req.params.id);
+  if (!entry) return res.status(404).json({ error: 'not found' });
+  const buf = req.body;
+  if (!Buffer.isBuffer(buf) || buf.length === 0) return res.status(400).json({ error: 'empty body' });
+  fs.mkdirSync(FIRMWARE_DIR, { recursive: true });
+  fs.writeFileSync(path.join(FIRMWARE_DIR, entry.filename), buf);
+  entry.size = buf.length;
+  entry.uploaded = true;
+  saveFirmware();
+  res.json({ ok: true, size: buf.length });
+});
+
+app.put('/api/firmware/:id', (req, res) => {
+  const idx = firmwareList.findIndex(f => f.id === req.params.id);
+  if (idx === -1) return res.status(404).json({ error: 'not found' });
+  const { version, target, date, description, groups: fwGroups, devices: fwDevices } = req.body || {};
+  const entry = { ...firmwareList[idx] };
+  if (version) entry.version = version.trim();
+  if (target && ['esp8266', 'esp32'].includes(target)) entry.target = target;
+  if (date) entry.date = date;
+  if (description !== undefined) entry.description = description.trim();
+  if (Array.isArray(fwGroups)) entry.groups = fwGroups;
+  if (Array.isArray(fwDevices)) entry.devices = fwDevices;
+  firmwareList[idx] = entry;
+  saveFirmware();
+  res.json({ ok: true, entry });
+});
+
+app.get('/api/firmware/:id/download', (req, res) => {
+  const entry = firmwareList.find(f => f.id === req.params.id);
+  if (!entry || !entry.uploaded) return res.status(404).json({ error: 'not found' });
+  res.download(path.join(FIRMWARE_DIR, entry.filename), entry.originalName || entry.filename);
+});
+
+app.post('/api/firmware/:fwId/flash/:deviceId', (req, res) => {
+  const entry = firmwareList.find(f => f.id === req.params.fwId);
+  if (!entry || !entry.uploaded) return res.status(404).json({ ok: false, error: 'firmware not found' });
+  const device = devices.get(req.params.deviceId);
+  if (!device) return res.status(404).json({ ok: false, error: 'device not found' });
+
+  let fileData;
+  try { fileData = fs.readFileSync(path.join(FIRMWARE_DIR, entry.filename)); }
+  catch (_) { return res.status(500).json({ ok: false, error: 'firmware file missing on server' }); }
+
+  const boundary = '----ESPOTABoundary' + Date.now().toString(16);
+  const partHeader = Buffer.from(
+    `--${boundary}\r\nContent-Disposition: form-data; name="firmware"; filename="${entry.originalName || entry.filename}"\r\nContent-Type: application/octet-stream\r\n\r\n`
+  );
+  const partFooter = Buffer.from(`\r\n--${boundary}--\r\n`);
+  const body = Buffer.concat([partHeader, fileData, partFooter]);
+
+  const proxyReq = http.request({
+    hostname: device.ip,
+    port: device.port || 80,
+    path: '/update',
+    method: 'POST',
+    headers: {
+      'Content-Type': `multipart/form-data; boundary=${boundary}`,
+      'Content-Length': body.length,
+    },
+  }, (proxyRes) => {
+    let respBody = '';
+    proxyRes.on('data', chunk => { respBody += chunk; });
+    proxyRes.on('end', () => {
+      if (res.headersSent) return;
+      try { res.status(proxyRes.statusCode).json(JSON.parse(respBody)); }
+      catch (_) { res.status(proxyRes.statusCode).send(respBody); }
+    });
+  });
+
+  proxyReq.setTimeout(120000, () => {
+    proxyReq.destroy();
+    if (!res.headersSent) res.status(504).json({ ok: false, error: 'timeout' });
+  });
+  proxyReq.on('error', () => {
+    if (!res.headersSent) res.status(504).json({ ok: false, error: 'device unreachable' });
+  });
+  proxyReq.write(body);
+  proxyReq.end();
+});
+
+app.delete('/api/firmware/:id', (req, res) => {
+  const idx = firmwareList.findIndex(f => f.id === req.params.id);
+  if (idx === -1) return res.status(404).json({ error: 'not found' });
+  const entry = firmwareList[idx];
+  try { fs.unlinkSync(path.join(FIRMWARE_DIR, entry.filename)); } catch (_) {}
+  firmwareList.splice(idx, 1);
+  saveFirmware();
   res.json({ ok: true });
 });
 

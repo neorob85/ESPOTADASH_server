@@ -291,6 +291,9 @@ document.addEventListener('keydown', (ev) => {
     if (!eepromModal.classList.contains('hidden')) closeEepromModal();
     else if (!groupModal.classList.contains('hidden')) closeGroupModal();
     else if (!otaModal.classList.contains('hidden')) closeOtaModal();
+    else if (!fwEditModal.classList.contains('hidden')) closeFwEditModal();
+    else if (!fwModal.classList.contains('hidden')) closeFwUploadModal();
+    else if (!fwFlashModal.classList.contains('hidden')) closeFwFlashModal();
     else closeCmdModal();
   }
 });
@@ -1039,6 +1042,7 @@ let currentView = 'devices';
 
 const devicesView  = document.getElementById('devices-view');
 const groupsView   = document.getElementById('groups-view');
+const firmwareView = document.getElementById('firmware-view');
 const groupsGrid   = document.getElementById('groups-grid');
 const groupsEmpty  = document.getElementById('groups-empty');
 const groupAddBtn  = document.getElementById('group-add-btn');
@@ -1062,7 +1066,9 @@ document.querySelectorAll('.nav-btn').forEach(btn => {
     document.querySelectorAll('.nav-btn').forEach(b => b.classList.toggle('active', b.dataset.view === view));
     devicesView.classList.toggle('hidden', view !== 'devices');
     groupsView.classList.toggle('hidden', view !== 'groups');
+    firmwareView.classList.toggle('hidden', view !== 'firmware');
     if (view === 'groups') renderGroups();
+    if (view === 'firmware') loadFirmwareList().then(renderFirmware);
   });
 });
 
@@ -1386,5 +1392,514 @@ function connect() {
 }
 
 setInterval(render, 15_000); // keep "ultimo ping" relative times fresh
+
+// ---- Firmware ----
+
+const fwUploadBtn    = document.getElementById('fw-upload-btn');
+const fwEmpty        = document.getElementById('fw-empty');
+const fwListEl       = document.getElementById('fw-list');
+const fwModal        = document.getElementById('fw-modal');
+const fwModalClose   = document.getElementById('fw-modal-close');
+const fwModalCancel  = document.getElementById('fw-modal-cancel');
+const fwModalUpload  = document.getElementById('fw-modal-upload');
+const fwModalResult  = document.getElementById('fw-modal-result');
+const fwDrop         = document.getElementById('fw-drop');
+const fwDropLabel    = document.getElementById('fw-drop-label');
+const fwFileInfo     = document.getElementById('fw-file-info');
+const fwFileInput    = document.getElementById('fw-file-input');
+const fwBrowseBtn    = document.getElementById('fw-browse-btn');
+const fwProgress     = document.getElementById('fw-progress');
+const fwProgressFill = document.getElementById('fw-progress-fill');
+const fwProgressText = document.getElementById('fw-progress-text');
+const fwVersion      = document.getElementById('fw-version');
+const fwTarget       = document.getElementById('fw-target');
+const fwDate         = document.getElementById('fw-date');
+const fwDesc         = document.getElementById('fw-desc');
+const fwGroupList    = document.getElementById('fw-group-list');
+const fwDeviceList   = document.getElementById('fw-device-list');
+const fwEditModal       = document.getElementById('fw-edit-modal');
+const fwEditModalClose  = document.getElementById('fw-edit-modal-close');
+const fwEditModalCancel = document.getElementById('fw-edit-modal-cancel');
+const fwEditModalSave   = document.getElementById('fw-edit-modal-save');
+const fwEditModalResult = document.getElementById('fw-edit-modal-result');
+const fwEditVersion     = document.getElementById('fw-edit-version');
+const fwEditTarget      = document.getElementById('fw-edit-target');
+const fwEditDate        = document.getElementById('fw-edit-date');
+const fwEditDesc        = document.getElementById('fw-edit-desc');
+const fwEditGroupList   = document.getElementById('fw-edit-group-list');
+const fwEditDeviceList  = document.getElementById('fw-edit-device-list');
+
+let fwList = [];
+let fwFile = null;
+let fwEditId = null;
+
+async function loadFirmwareList() {
+  try {
+    const r = await fetch('/api/firmware');
+    fwList = await r.json();
+  } catch (_) {
+    fwList = [];
+  }
+}
+
+function renderFirmware() {
+  fwEmpty.classList.toggle('hidden', fwList.length !== 0);
+  fwListEl.innerHTML = '';
+  for (const fw of [...fwList].reverse()) {
+    fwListEl.insertAdjacentHTML('beforeend', fwCardHtml(fw));
+  }
+}
+
+function fwCardHtml(fw) {
+  const targetBadge = fw.target === 'esp32'
+    ? `<span class="badge esp32">${escapeHtml(fw.target.toUpperCase())}</span>`
+    : `<span class="badge">${escapeHtml(fw.target.toUpperCase())}</span>`;
+
+  const groupChips = (fw.groups || [])
+    .map(gid => groupsMap.get(gid)).filter(Boolean)
+    .map(g => `<span class="group-device-chip">${escapeHtml(g.name)}</span>`).join('');
+
+  const deviceChips = (fw.devices || [])
+    .map(did => devices.get(did)).filter(Boolean)
+    .map(d => `<span class="group-device-chip${d.online ? '' : ' offline'}"><span class="chip-dot"></span>${escapeHtml(d.name || d.id)}</span>`).join('');
+
+  const assocHtml = (groupChips || deviceChips) ? `
+    <div class="fw-card-assoc">
+      ${groupChips ? `<div class="fw-card-assoc-row"><span class="fw-assoc-label">Gruppi</span><div class="fw-chips">${groupChips}</div></div>` : ''}
+      ${deviceChips ? `<div class="fw-card-assoc-row"><span class="fw-assoc-label">Dispositivi</span><div class="fw-chips">${deviceChips}</div></div>` : ''}
+    </div>` : '';
+
+  const sizeStr = fw.size ? fmtBytes(fw.size) : '—';
+  const uploadedStr = fw.uploaded
+    ? fmtRel(fw.createdAt)
+    : '<span style="color:var(--bad)">non caricato</span>';
+
+  return `<div class="fw-card" data-fwid="${escapeHtml(fw.id)}">
+    <div class="fw-card-head">
+      <span class="badge fw">v${escapeHtml(fw.version)}</span>
+      ${targetBadge}
+      <span class="fw-card-date">${escapeHtml(fw.date)}</span>
+      <span class="fw-card-filename">${escapeHtml(fw.originalName || fw.filename)}</span>
+    </div>
+    ${fw.description ? `<div class="fw-card-desc">${escapeHtml(fw.description)}</div>` : ''}
+    ${assocHtml}
+    <div class="fw-card-foot">
+      <span class="fw-card-info">${sizeStr} &middot; ${uploadedStr}</span>
+      <div class="foot-actions">
+        ${fw.uploaded ? `<a class="btn btn-backup" href="/api/firmware/${escapeHtml(fw.id)}/download" download title="Scarica il file .bin">&#8659; Download</a>` : ''}
+        ${fw.uploaded ? `<button class="btn btn-ota" data-fwaction="flash" data-fwid="${escapeHtml(fw.id)}">&#9654; Flash</button>` : ''}
+        <button class="btn btn-cmd" data-fwaction="edit" data-fwid="${escapeHtml(fw.id)}">Modifica</button>
+        <button class="btn" data-fwaction="delete" data-fwid="${escapeHtml(fw.id)}">Elimina</button>
+      </div>
+    </div>
+  </div>`;
+}
+
+fwListEl.addEventListener('click', async (ev) => {
+  const btn = ev.target.closest('button[data-fwaction]');
+  if (!btn) return;
+  const id = btn.dataset.fwid;
+  if (btn.dataset.fwaction === 'delete') {
+    const fw = fwList.find(f => f.id === id);
+    if (!fw || !confirm(`Eliminare il firmware "v${fw.version}" (${fw.originalName || fw.filename})?`)) return;
+    await fetch(`/api/firmware/${encodeURIComponent(id)}`, { method: 'DELETE' });
+    await loadFirmwareList();
+    renderFirmware();
+  } else if (btn.dataset.fwaction === 'edit') {
+    openFwEditModal(id);
+  } else if (btn.dataset.fwaction === 'flash') {
+    openFwFlashModal(id);
+  }
+});
+
+function populateFwSelectors(groupListEl, deviceListEl, selectedGroups, selectedDevices) {
+  const gList = Array.from(groupsMap.values()).sort((a, b) => a.name.localeCompare(b.name));
+  groupListEl.innerHTML = gList.length === 0
+    ? '<span class="gf-no-devices">Nessun gruppo disponibile</span>'
+    : gList.map(g => `<label class="gf-device-check">
+        <input type="checkbox" value="${escapeHtml(g.id)}" ${selectedGroups.has(g.id) ? 'checked' : ''} />
+        <span class="gf-device-check-name">${escapeHtml(g.name)}</span>
+      </label>`).join('');
+
+  const dList = Array.from(devices.values()).sort((a, b) => (a.name || a.id).localeCompare(b.name || b.id));
+  deviceListEl.innerHTML = dList.length === 0
+    ? '<span class="gf-no-devices">Nessun dispositivo registrato</span>'
+    : dList.map(d => `<label class="gf-device-check">
+        <input type="checkbox" value="${escapeHtml(d.id)}" ${selectedDevices.has(d.id) ? 'checked' : ''} />
+        <span class="gf-device-check-name">${escapeHtml(d.name || d.hostname || d.id)}</span>
+        <span class="gf-device-check-ip">${escapeHtml(d.ip || '')}</span>
+      </label>`).join('');
+}
+
+function openFwUploadModal() {
+  fwFile = null;
+  fwFileInput.value = '';
+  fwDropLabel.classList.remove('hidden');
+  fwFileInfo.classList.add('hidden');
+  fwProgress.classList.add('hidden');
+  fwProgressFill.style.width = '0%';
+  fwProgressText.textContent = '0%';
+  fwModalResult.className = 'modal-result hidden';
+  fwVersion.value = '';
+  fwTarget.value = 'esp8266';
+  fwDate.value = new Date().toISOString().slice(0, 10);
+  fwDesc.value = '';
+  fwModalUpload.disabled = true;
+  fwModalCancel.disabled = false;
+  fwModalCancel.textContent = 'Annulla';
+  fwDrop.classList.remove('drag-over');
+  populateFwSelectors(fwGroupList, fwDeviceList, new Set(), new Set());
+  fwModal.classList.remove('hidden');
+  fwVersion.focus();
+}
+
+function closeFwUploadModal() {
+  fwModal.classList.add('hidden');
+  fwFile = null;
+}
+
+function setFwFile(file) {
+  if (!file) return;
+  if (!file.name.endsWith('.bin')) {
+    fwModalResult.textContent = 'Seleziona un file .bin valido';
+    fwModalResult.className = 'modal-result err';
+    return;
+  }
+  fwFile = file;
+  fwModalResult.className = 'modal-result hidden';
+  fwDropLabel.classList.add('hidden');
+  fwFileInfo.innerHTML = `<strong>${escapeHtml(file.name)}</strong> &mdash; ${fmtBytes(file.size)}
+    <button class="ota-file-clear" title="Rimuovi file">&times;</button>`;
+  fwFileInfo.classList.remove('hidden');
+  fwModalUpload.disabled = false;
+}
+
+fwBrowseBtn.addEventListener('click', () => fwFileInput.click());
+fwFileInput.addEventListener('change', () => setFwFile(fwFileInput.files[0]));
+
+fwFileInfo.addEventListener('click', (ev) => {
+  if (ev.target.classList.contains('ota-file-clear')) {
+    fwFile = null;
+    fwFileInput.value = '';
+    fwFileInfo.classList.add('hidden');
+    fwDropLabel.classList.remove('hidden');
+    fwModalUpload.disabled = true;
+  }
+});
+
+fwDrop.addEventListener('dragover', (ev) => { ev.preventDefault(); fwDrop.classList.add('drag-over'); });
+fwDrop.addEventListener('dragleave', () => fwDrop.classList.remove('drag-over'));
+fwDrop.addEventListener('drop', (ev) => {
+  ev.preventDefault();
+  fwDrop.classList.remove('drag-over');
+  setFwFile(ev.dataTransfer.files[0]);
+});
+
+fwModalClose.addEventListener('click', closeFwUploadModal);
+fwModalCancel.addEventListener('click', closeFwUploadModal);
+fwModal.addEventListener('click', (ev) => { if (ev.target === fwModal) closeFwUploadModal(); });
+fwUploadBtn.addEventListener('click', openFwUploadModal);
+
+fwModalUpload.addEventListener('click', async () => {
+  if (!fwFile) return;
+  const version = fwVersion.value.trim();
+  if (!version) {
+    fwModalResult.textContent = 'Versione obbligatoria';
+    fwModalResult.className = 'modal-result err';
+    return;
+  }
+  const body = {
+    version,
+    target: fwTarget.value,
+    date: fwDate.value,
+    description: fwDesc.value.trim(),
+    groups: [...fwGroupList.querySelectorAll('input:checked')].map(cb => cb.value),
+    devices: [...fwDeviceList.querySelectorAll('input:checked')].map(cb => cb.value),
+    originalName: fwFile.name,
+  };
+  fwModalUpload.disabled = true;
+  fwModalCancel.disabled = true;
+  fwModalResult.textContent = 'Creazione entry…';
+  fwModalResult.className = 'modal-result';
+  fwProgress.classList.remove('hidden');
+  fwProgressFill.style.width = '0%';
+  fwProgressText.textContent = '0%';
+  try {
+    const metaRes = await fetch('/api/firmware', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+    const meta = await metaRes.json();
+    if (!meta.ok) throw new Error(meta.error || 'Errore creazione entry');
+
+    fwModalResult.textContent = 'Caricamento file…';
+    await new Promise((resolve, reject) => {
+      const xhr = new XMLHttpRequest();
+      xhr.open('PUT', `/api/firmware/${encodeURIComponent(meta.id)}/file`);
+      xhr.setRequestHeader('Content-Type', 'application/octet-stream');
+      xhr.upload.addEventListener('progress', (ev) => {
+        if (ev.lengthComputable) {
+          const pct = Math.round((ev.loaded / ev.total) * 100);
+          fwProgressFill.style.width = pct + '%';
+          fwProgressText.textContent = pct + '%';
+        }
+      });
+      xhr.addEventListener('load', () => {
+        let res = {};
+        try { res = JSON.parse(xhr.responseText); } catch (_) {}
+        if (xhr.status >= 200 && xhr.status < 300 && res.ok !== false) resolve(res);
+        else reject(new Error(res.error || `HTTP ${xhr.status}`));
+      });
+      xhr.addEventListener('error', () => reject(new Error('Errore di rete')));
+      xhr.send(fwFile);
+    });
+
+    fwModalResult.textContent = 'Firmware caricato con successo!';
+    fwModalResult.className = 'modal-result ok';
+    fwModalCancel.disabled = false;
+    fwModalCancel.textContent = 'Chiudi';
+    await loadFirmwareList();
+    renderFirmware();
+  } catch (err) {
+    fwModalResult.textContent = 'Errore: ' + err.message;
+    fwModalResult.className = 'modal-result err';
+    fwModalUpload.disabled = false;
+    fwModalCancel.disabled = false;
+  }
+});
+
+function openFwEditModal(id) {
+  const fw = fwList.find(f => f.id === id);
+  if (!fw) return;
+  fwEditId = id;
+  fwEditVersion.value = fw.version;
+  fwEditTarget.value = fw.target;
+  fwEditDate.value = fw.date;
+  fwEditDesc.value = fw.description || '';
+  fwEditModalResult.className = 'modal-result hidden';
+  populateFwSelectors(fwEditGroupList, fwEditDeviceList, new Set(fw.groups || []), new Set(fw.devices || []));
+  fwEditModal.classList.remove('hidden');
+  fwEditVersion.focus();
+}
+
+function closeFwEditModal() {
+  fwEditModal.classList.add('hidden');
+  fwEditId = null;
+}
+
+fwEditModalClose.addEventListener('click', closeFwEditModal);
+fwEditModalCancel.addEventListener('click', closeFwEditModal);
+fwEditModal.addEventListener('click', (ev) => { if (ev.target === fwEditModal) closeFwEditModal(); });
+
+fwEditModalSave.addEventListener('click', async () => {
+  if (!fwEditId) return;
+  const version = fwEditVersion.value.trim();
+  if (!version) {
+    fwEditModalResult.textContent = 'Versione obbligatoria';
+    fwEditModalResult.className = 'modal-result err';
+    return;
+  }
+  const body = {
+    version,
+    target: fwEditTarget.value,
+    date: fwEditDate.value,
+    description: fwEditDesc.value.trim(),
+    groups: [...fwEditGroupList.querySelectorAll('input:checked')].map(cb => cb.value),
+    devices: [...fwEditDeviceList.querySelectorAll('input:checked')].map(cb => cb.value),
+  };
+  try {
+    const r = await fetch(`/api/firmware/${encodeURIComponent(fwEditId)}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+    const data = await r.json().catch(() => ({}));
+    if (data.ok) {
+      closeFwEditModal();
+      await loadFirmwareList();
+      renderFirmware();
+    } else {
+      fwEditModalResult.textContent = data.error || 'Errore sconosciuto';
+      fwEditModalResult.className = 'modal-result err';
+    }
+  } catch (_) {
+    fwEditModalResult.textContent = 'Errore di rete';
+    fwEditModalResult.className = 'modal-result err';
+  }
+});
+
+// ---- Flash modal ----
+
+const fwFlashModal   = document.getElementById('fw-flash-modal');
+const fwFlashClose   = document.getElementById('fw-flash-modal-close');
+const fwFlashCancel  = document.getElementById('fw-flash-cancel');
+const fwFlashStart   = document.getElementById('fw-flash-start');
+const fwFlashInfo    = document.getElementById('fw-flash-info');
+const fwFlashTargets = document.getElementById('fw-flash-targets');
+const fwFlashLog     = document.getElementById('fw-flash-log');
+
+let fwFlashId = null;
+let fwFlashing = false;
+
+function buildFlashTargetList(fw) {
+  const directIds  = new Set(fw.devices || []);
+  const groupDevIds = new Set();
+  const groupLabels = {};
+  for (const gid of (fw.groups || [])) {
+    const g = groupsMap.get(gid);
+    if (!g) continue;
+    for (const did of (g.deviceIds || [])) {
+      groupDevIds.add(did);
+      if (!groupLabels[did]) groupLabels[did] = [];
+      groupLabels[did].push(g.name);
+    }
+  }
+  const preselected = new Set([...directIds, ...groupDevIds]);
+
+  const allDevices = Array.from(devices.values()).sort((a, b) =>
+    (a.name || a.id).localeCompare(b.name || b.id));
+
+  if (allDevices.length === 0) {
+    fwFlashTargets.innerHTML = '<p class="fw-flash-empty">Nessun dispositivo registrato.</p>';
+    fwFlashStart.disabled = true;
+    return;
+  }
+
+  let html = '<div class="fw-flash-select-row">';
+  html += `<button class="btn fw-selall-btn" id="fw-selall">Seleziona tutti</button>`;
+  html += `<button class="btn fw-selall-btn" id="fw-selnone">Deseleziona tutti</button>`;
+  html += '</div><div class="fw-target-list">';
+
+  for (const d of allDevices) {
+    const checked = preselected.has(d.id) ? 'checked' : '';
+    const onlineDot = d.online
+      ? '<span class="fw-dot fw-dot-on" title="Online"></span>'
+      : '<span class="fw-dot fw-dot-off" title="Offline"></span>';
+    const labels = [];
+    if (directIds.has(d.id)) labels.push('<span class="fw-tag fw-tag-direct">associato</span>');
+    if (groupDevIds.has(d.id)) {
+      for (const gname of (groupLabels[d.id] || [])) {
+        labels.push(`<span class="fw-tag fw-tag-group">${escapeHtml(gname)}</span>`);
+      }
+    }
+    html += `<label class="fw-target-row">
+      <input type="checkbox" class="fw-target-cb" value="${escapeHtml(d.id)}" ${checked} />
+      ${onlineDot}
+      <span class="fw-target-name">${escapeHtml(d.name || d.hostname || d.id)}</span>
+      <span class="fw-target-ip">${escapeHtml(d.ip || '')}</span>
+      <span class="fw-target-tags">${labels.join('')}</span>
+    </label>`;
+  }
+  html += '</div>';
+  fwFlashTargets.innerHTML = html;
+
+  fwFlashTargets.querySelector('#fw-selall').addEventListener('click', () => {
+    fwFlashTargets.querySelectorAll('.fw-target-cb').forEach(cb => { cb.checked = true; });
+    updateFlashBtn();
+  });
+  fwFlashTargets.querySelector('#fw-selnone').addEventListener('click', () => {
+    fwFlashTargets.querySelectorAll('.fw-target-cb').forEach(cb => { cb.checked = false; });
+    updateFlashBtn();
+  });
+  fwFlashTargets.addEventListener('change', updateFlashBtn);
+  updateFlashBtn();
+}
+
+function updateFlashBtn() {
+  const count = fwFlashTargets.querySelectorAll('.fw-target-cb:checked').length;
+  fwFlashStart.disabled = count === 0 || fwFlashing;
+  fwFlashStart.textContent = count > 0
+    ? `▶ Flash su ${count} dispositiv${count === 1 ? 'o' : 'i'}`
+    : '▶ Flash su selezionati';
+}
+
+function openFwFlashModal(id) {
+  const fw = fwList.find(f => f.id === id);
+  if (!fw) return;
+  fwFlashId = id;
+  fwFlashing = false;
+  fwFlashLog.innerHTML = '';
+  fwFlashLog.classList.add('hidden');
+
+  const targetBadge = fw.target === 'esp32'
+    ? `<span class="badge esp32">${fw.target.toUpperCase()}</span>`
+    : `<span class="badge">${fw.target.toUpperCase()}</span>`;
+  fwFlashInfo.innerHTML = `
+    <div class="fw-flash-header-info">
+      <span class="badge fw">v${escapeHtml(fw.version)}</span>
+      ${targetBadge}
+      <span class="fw-card-date">${escapeHtml(fw.date)}</span>
+      <span class="fw-card-filename">${escapeHtml(fw.originalName || fw.filename)}</span>
+    </div>`;
+
+  buildFlashTargetList(fw);
+  fwFlashModal.classList.remove('hidden');
+}
+
+function closeFwFlashModal() {
+  if (fwFlashing) return;
+  fwFlashModal.classList.add('hidden');
+  fwFlashId = null;
+}
+
+function appendFlashLog(deviceName, status, msg) {
+  const row = document.createElement('div');
+  row.className = 'fw-log-row fw-log-' + status;
+  row.innerHTML = `<span class="fw-log-name">${escapeHtml(deviceName)}</span><span class="fw-log-msg">${escapeHtml(msg)}</span>`;
+  fwFlashLog.appendChild(row);
+  fwFlashLog.scrollTop = fwFlashLog.scrollHeight;
+}
+
+fwFlashStart.addEventListener('click', async () => {
+  if (!fwFlashId || fwFlashing) return;
+  const selected = [...fwFlashTargets.querySelectorAll('.fw-target-cb:checked')].map(cb => cb.value);
+  if (selected.length === 0) return;
+
+  fwFlashing = true;
+  fwFlashStart.disabled = true;
+  fwFlashCancel.disabled = true;
+  fwFlashTargets.querySelectorAll('.fw-target-cb, .fw-selall-btn').forEach(el => { el.disabled = true; });
+  fwFlashLog.innerHTML = '';
+  fwFlashLog.classList.remove('hidden');
+
+  let ok = 0, fail = 0;
+  for (const did of selected) {
+    const d = devices.get(did);
+    const name = d ? (d.name || d.hostname || d.id) : did;
+    appendFlashLog(name, 'pending', 'flashing…');
+    try {
+      const r = await fetch(`/api/firmware/${encodeURIComponent(fwFlashId)}/flash/${encodeURIComponent(did)}`, { method: 'POST' });
+      const body = await r.json().catch(() => ({}));
+      const lastRow = fwFlashLog.lastElementChild;
+      if (r.ok && body.ok !== false) {
+        lastRow.className = 'fw-log-row fw-log-ok';
+        lastRow.querySelector('.fw-log-msg').textContent = 'completato — dispositivo in riavvio';
+        ok++;
+      } else {
+        lastRow.className = 'fw-log-row fw-log-err';
+        lastRow.querySelector('.fw-log-msg').textContent = body.error || `HTTP ${r.status}`;
+        fail++;
+      }
+    } catch (_) {
+      fwFlashLog.lastElementChild.className = 'fw-log-row fw-log-err';
+      fwFlashLog.lastElementChild.querySelector('.fw-log-msg').textContent = 'errore di rete';
+      fail++;
+    }
+  }
+
+  const summary = document.createElement('div');
+  summary.className = 'fw-log-summary';
+  summary.textContent = `Completato: ${ok} ok, ${fail} errori`;
+  fwFlashLog.appendChild(summary);
+
+  fwFlashing = false;
+  fwFlashCancel.disabled = false;
+  fwFlashCancel.textContent = 'Chiudi';
+});
+
+fwFlashClose.addEventListener('click', closeFwFlashModal);
+fwFlashCancel.addEventListener('click', closeFwFlashModal);
+fwFlashModal.addEventListener('click', (ev) => { if (ev.target === fwFlashModal) closeFwFlashModal(); });
 
 connect();
