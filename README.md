@@ -2,6 +2,8 @@
 
 ESPOTADASH is a Node.js/Express server that acts as a central hub for managing a fleet of ESP8266 and ESP32 devices over Wi-Fi. It provides a web dashboard (served as static files) and a REST + WebSocket API that covers the full device lifecycle: registration, health monitoring, remote commands, OTA firmware updates, EEPROM data management, and LittleFS file system access.
 
+To use this server, you need program your ESP with this library https://github.com/neorob85/ESPOTADASH_library
+
 ## Features
 
 ### Device registration and inventory
