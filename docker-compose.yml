@@ -1,6 +1,6 @@
 services:
   espotadash:
-    image: espotadash:1.0.0
+    image: espotadash:1.0.2
     container_name: espotadash
     ports:
       - "3000:3000"

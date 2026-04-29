@@ -241,7 +241,7 @@ app.get('/api/firmware', (_req, res) => {
 app.post('/api/firmware', (req, res) => {
   const { version, target, date, description, groups: fwGroups, devices: fwDevices, originalName } = req.body || {};
   if (!version || !version.trim()) return res.status(400).json({ error: 'missing version' });
-  if (!target || !['esp8266', 'esp32'].includes(target)) return res.status(400).json({ error: 'invalid target' });
+  if (!target || !['esp8266', 'esp32', 'libretiny'].includes(target)) return res.status(400).json({ error: 'invalid target' });
   const now = Date.now();
   const uid = now.toString(36) + Math.random().toString(36).slice(2, 7);
   const filename = uid + '.bin';
@@ -283,7 +283,7 @@ app.put('/api/firmware/:id', (req, res) => {
   const { version, target, date, description, groups: fwGroups, devices: fwDevices } = req.body || {};
   const entry = { ...firmwareList[idx] };
   if (version) entry.version = version.trim();
-  if (target && ['esp8266', 'esp32'].includes(target)) entry.target = target;
+  if (target && ['esp8266', 'esp32', 'libretiny'].includes(target)) entry.target = target;
   if (date) entry.date = date;
   if (description !== undefined) entry.description = description.trim();
   if (Array.isArray(fwGroups)) entry.groups = fwGroups;

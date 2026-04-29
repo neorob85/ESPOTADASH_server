@@ -24,16 +24,16 @@ Devices can be organized into named groups with an optional description. Groups 
 
 ### Firmware management (OTA)
 
-Firmware images (`.bin` files up to 16 MB) are managed in two steps:
+Firmware images (`.bin` files for ESP8266/ESP32, `.uf2` files for LibreTiny, up to 16 MB) are managed in two steps:
 
-1. **Create a metadata entry** (`POST /api/firmware`) specifying version, target platform (`esp8266` or `esp32`), description, date, and optional group/device associations.
+1. **Create a metadata entry** (`POST /api/firmware`) specifying version, target platform (`esp8266`, `esp32`, or `libretiny`), description, date, and optional group/device associations.
 2. **Upload the binary** (`PUT /api/firmware/:id/file`), stored in the `firmware/` directory under a unique filename.
 
 Metadata is persisted in `config/firmware.json`. Existing entries can be updated or deleted (which also removes the binary from disk).
 
 ### OTA flash (server-side proxy)
 
-`POST /api/firmware/:fwId/flash/:deviceId` reads the stored `.bin` file and forwards it to the target device's `/update` endpoint as a `multipart/form-data` request. The server acts as a proxy, so the browser never needs a direct route to the device. The operation has a 120 s timeout.
+`POST /api/firmware/:fwId/flash/:deviceId` reads the stored firmware file (`.bin` or `.uf2`) and forwards it to the target device's `/update` endpoint as a `multipart/form-data` request. The server acts as a proxy, so the browser never needs a direct route to the device. The operation has a 120 s timeout.
 
 ### Direct OTA upload proxy
 
@@ -75,10 +75,10 @@ The `public/` directory is served as static content. The single-page dashboard (
 ## Build the Docker image
 
 ```bash
-docker build -t espotadash:1.0.0 -t espotadash:latest .
+docker build -t espotadash:1.0.2 -t espotadash:latest .
 ```
 
-The tag `espotadash:1.0.0` pins the version; `espotadash:latest` always points to the most recent build.
+The tag `espotadash:1.0.2` pins the version; `espotadash:latest` always points to the most recent build.
 
 ## Run from the command line
 
@@ -88,7 +88,7 @@ docker run -d \
   -p 3000:3000 \
   -v "$(pwd)/config:/app/config" \
   -v "$(pwd)/firmware:/app/firmware" \
-  espotadash:1.0.0
+  espotadash:1.0.2
 ```
 
 Open the dashboard at <http://localhost:3000>.
@@ -123,7 +123,7 @@ docker compose build && docker compose up -d
 | Host path   | Container path  | Purpose                                              |
 |-------------|-----------------|------------------------------------------------------|
 | `./config/` | `/app/config/`  | Persistent device registry, groups and firmware metadata (`devices.json`, `groups.json`, `firmware.json`) |
-| `./firmware/` | `/app/firmware/` | Uploaded firmware binaries (`.bin` files)          |
+| `./firmware/` | `/app/firmware/` | Uploaded firmware binaries (`.bin` / `.uf2` files) |
 
 > Both directories are created automatically by the server if they do not exist. Mount them to keep data across container restarts and upgrades.
 
@@ -146,7 +146,7 @@ docker run -d \
   -e PING_INTERVAL_MS=30000 \
   -v "$(pwd)/config:/app/config" \
   -v "$(pwd)/firmware:/app/firmware" \
-  espotadash:1.0.0
+  espotadash:1.0.2
 ```
 
 Or in `docker-compose.yml` under the `environment` key.
@@ -156,7 +156,7 @@ Or in `docker-compose.yml` under the `environment` key.
 Image tags follow **SemVer** (`MAJOR.MINOR.PATCH`). Always build with both a version tag and `latest`:
 
 ```bash
-docker build -t espotadash:1.0.0 -t espotadash:latest .
+docker build -t espotadash:1.0.2 -t espotadash:latest .
 ```
 
 When upgrading, update the image tag in `docker-compose.yml` and rebuild.

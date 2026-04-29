@@ -78,6 +78,7 @@ function rssiLevel(rssi) {
 }
 
 function heapTotalHint(d) {
+  if (d.heapSize) return d.heapSize;
   // ESP8266 has ~80KB user heap. Estimate usage against the highest observed free value.
   const estimate = Math.max(d._heapMax || 0, d.freeHeap || 0, 50 * 1024);
   return estimate;
@@ -133,9 +134,10 @@ function cardHtml(d) {
   const heapUsed = Math.max(0, heapMax - freeHeap);
   const heapPct = heapMax ? Math.min(100, Math.round((heapUsed / heapMax) * 100)) : 0;
 
+  const isLT = d.platform === 'LibreTiny';
   const flashSize = d.flashChipSize || 0;
   const sketchSize = d.sketchSize || 0;
-  const flashPct = flashSize ? Math.min(100, Math.round((sketchSize / flashSize) * 100)) : 0;
+  const flashPct = flashSize && sketchSize ? Math.min(100, Math.round((sketchSize / flashSize) * 100)) : 0;
 
   const rssi = d.rssi;
   const level = rssiLevel(rssi);
@@ -166,9 +168,9 @@ function cardHtml(d) {
       <dt>Hostname</dt><dd>${escapeHtml(d.hostname || '—')}</dd>
       <dt>SSID</dt><dd>${escapeHtml(d.ssid || '—')}<span class="rssi-bars s${level}" title="${rssi ?? '—'} dBm"><i></i><i></i><i></i><i></i></span></dd>
       <dt>CPU</dt><dd>${d.cpuFreqMHz ? d.cpuFreqMHz + ' MHz' : '—'}</dd>
-      <dt>Flash chip</dt><dd>${fmtBytes(d.flashChipRealSize)} · ${fmtHz(d.flashChipSpeed)}</dd>
-      <dt>Heap frag.</dt><dd>${d.heapFragmentation != null ? d.heapFragmentation + '%' : '—'} · max block ${fmtBytes(d.maxFreeBlockSize)}</dd>
-      <dt>Sketch</dt><dd>${fmtBytes(d.sketchSize)} usati · ${fmtBytes(d.freeSketchSpace)} liberi</dd>
+      <dt>Flash chip</dt><dd>${fmtBytes(d.flashChipRealSize)}${d.flashChipSpeed != null ? ' · ' + fmtHz(d.flashChipSpeed) : ''}</dd>
+      <dt>Heap frag.</dt><dd>${d.heapFragmentation != null ? d.heapFragmentation + '%' : '—'} · ${isLT ? 'min liberi ' + fmtBytes(d.heapMinFree) : 'max block ' + fmtBytes(d.maxFreeBlockSize)}</dd>
+      ${isLT ? `<dt>Heap / RAM</dt><dd>${fmtBytes(d.heapSize)} heap · ${fmtBytes(d.ramSize)} RAM tot.</dd>` : `<dt>Sketch</dt><dd>${fmtBytes(d.sketchSize)} usati · ${fmtBytes(d.freeSketchSpace)} liberi</dd>`}
       <dt>Core / SDK</dt><dd>${escapeHtml(d.coreVersion || '—')} / ${escapeHtml(d.sdkVersion || '—')}</dd>
       <dt>Reset</dt><dd>${escapeHtml(d.resetReason || '—')}</dd>
       <dt>Uptime</dt><dd>${fmtUptime(d.uptime)}</dd>
@@ -183,7 +185,7 @@ function cardHtml(d) {
       <div class="bar-row">
         <span class="lbl">Flash</span>
         <div class="bar ${barClass(flashPct)}"><span style="width:${flashPct}%"></span></div>
-        <span class="val">${fmtBytes(sketchSize)} / ${fmtBytes(flashSize)}</span>
+        <span class="val">${sketchSize ? fmtBytes(sketchSize) + ' / ' + fmtBytes(flashSize) : '— / ' + fmtBytes(flashSize)}</span>
       </div>
     </div>
 
@@ -1250,6 +1252,7 @@ function openOtaModal(device) {
   otaFlashBtn.disabled = true;
   otaCancelBtn.disabled = false;
   otaFileInput.value = '';
+  otaFileInput.accept = (device && device.platform === 'LibreTiny') ? '.bin,.uf2' : '.bin';
   otaDrop.classList.remove('drag-over');
   otaModal.classList.remove('hidden');
 }
@@ -1262,8 +1265,10 @@ function closeOtaModal() {
 
 function setOtaFile(file) {
   if (!file) return;
-  if (!file.name.endsWith('.bin')) {
-    otaResult.textContent = 'Seleziona un file .bin valido';
+  const isLT = devices.get(otaDeviceId)?.platform === 'LibreTiny';
+  const validExt = file.name.endsWith('.bin') || (isLT && file.name.endsWith('.uf2'));
+  if (!validExt) {
+    otaResult.textContent = isLT ? 'Seleziona un file .bin o .uf2 valido' : 'Seleziona un file .bin valido';
     otaResult.className = 'ota-result err';
     otaResult.classList.remove('hidden');
     return;
@@ -1457,9 +1462,10 @@ function renderFirmware() {
 }
 
 function fwCardHtml(fw) {
-  const targetBadge = fw.target === 'esp32'
-    ? `<span class="badge esp32">${escapeHtml(fw.target.toUpperCase())}</span>`
-    : `<span class="badge">${escapeHtml(fw.target.toUpperCase())}</span>`;
+  const targetClass = fw.target === 'esp32' ? 'esp32'
+                    : fw.target === 'libretiny' ? 'libretiny'
+                    : '';
+  const targetBadge = `<span class="badge ${targetClass}">${escapeHtml(fw.target.toUpperCase())}</span>`;
 
   const groupChips = (fw.groups || [])
     .map(gid => groupsMap.get(gid)).filter(Boolean)
@@ -1548,6 +1554,7 @@ function openFwUploadModal() {
   fwModalResult.className = 'modal-result hidden';
   fwVersion.value = '';
   fwTarget.value = 'esp8266';
+  fwFileInput.accept = '.bin';
   fwDate.value = new Date().toISOString().slice(0, 10);
   fwDesc.value = '';
   fwModalUpload.disabled = true;
@@ -1566,8 +1573,10 @@ function closeFwUploadModal() {
 
 function setFwFile(file) {
   if (!file) return;
-  if (!file.name.endsWith('.bin')) {
-    fwModalResult.textContent = 'Seleziona un file .bin valido';
+  const isLT = fwTarget.value === 'libretiny';
+  const validExt = file.name.endsWith('.bin') || (isLT && file.name.endsWith('.uf2'));
+  if (!validExt) {
+    fwModalResult.textContent = isLT ? 'Seleziona un file .bin o .uf2 valido' : 'Seleziona un file .bin valido';
     fwModalResult.className = 'modal-result err';
     return;
   }
@@ -1580,6 +1589,9 @@ function setFwFile(file) {
   fwModalUpload.disabled = false;
 }
 
+fwTarget.addEventListener('change', () => {
+  fwFileInput.accept = fwTarget.value === 'libretiny' ? '.bin,.uf2' : '.bin';
+});
 fwBrowseBtn.addEventListener('click', () => fwFileInput.click());
 fwFileInput.addEventListener('change', () => setFwFile(fwFileInput.files[0]));
 
@@ -1828,9 +1840,10 @@ function openFwFlashModal(id) {
   fwFlashLog.innerHTML = '';
   fwFlashLog.classList.add('hidden');
 
-  const targetBadge = fw.target === 'esp32'
-    ? `<span class="badge esp32">${fw.target.toUpperCase()}</span>`
-    : `<span class="badge">${fw.target.toUpperCase()}</span>`;
+  const targetClass = fw.target === 'esp32' ? 'esp32'
+                    : fw.target === 'libretiny' ? 'libretiny'
+                    : '';
+  const targetBadge = `<span class="badge ${targetClass}">${fw.target.toUpperCase()}</span>`;
   fwFlashInfo.innerHTML = `
     <div class="fw-flash-header-info">
       <span class="badge fw">v${escapeHtml(fw.version)}</span>
