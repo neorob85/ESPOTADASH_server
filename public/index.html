@@ -383,6 +383,29 @@
     </div>
   </div>
 
+  <!-- Config Modal (LibreTiny / PrefsManager) -->
+  <div id="config-modal" class="modal-overlay hidden" role="dialog" aria-modal="true" aria-labelledby="config-modal-title">
+    <div class="modal modal-config">
+      <div class="modal-head">
+        <h3 id="config-modal-title">Device Configuration</h3>
+        <button class="modal-close" id="config-modal-close" aria-label="Close">&times;</button>
+      </div>
+      <div class="config-toolbar">
+        <button class="btn" id="config-add-ns-btn">+ Namespace</button>
+        <button class="btn btn-backup" id="config-backup-btn">&#8659; Backup</button>
+        <button class="btn btn-restore" id="config-restore-btn">&#8657; Restore</button>
+        <input type="file" id="config-restore-file" accept=".json" style="display:none" />
+        <button class="btn btn-format" id="config-delete-all-btn">Delete All</button>
+      </div>
+      <div class="config-loading hidden" id="config-loading">Loading&hellip;</div>
+      <div class="config-content" id="config-content"></div>
+      <div class="config-footer">
+        <span class="config-status" id="config-status"></span>
+        <button class="btn btn-exit" id="config-modal-exit">Close</button>
+      </div>
+    </div>
+  </div>
+
   <script src="app.js"></script>
 </body>
 </html>

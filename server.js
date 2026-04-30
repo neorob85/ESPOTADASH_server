@@ -184,6 +184,155 @@ app.post('/api/devices/:id/eeprom-map', (req, res) => {
   res.json({ ok: true });
 });
 
+// ---- Config endpoints (LibreTiny / PrefsManager) ----
+
+app.get('/api/devices/:id/config', async (req, res) => {
+  const device = devices.get(req.params.id);
+  if (!device) return res.status(404).json({ ok: false, error: 'not found' });
+  const port = device.port || 80;
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), PING_TIMEOUT_MS * 3);
+  try {
+    const r = await fetch(`http://${device.ip}:${port}/config`, { signal: controller.signal });
+    const body = await r.json().catch(() => ({}));
+    res.status(r.ok ? 200 : 502).json(body);
+  } catch (_e) {
+    res.status(504).json({ ok: false, error: 'device unreachable' });
+  } finally {
+    clearTimeout(timer);
+  }
+});
+
+app.post('/api/devices/:id/config/key', async (req, res) => {
+  const device = devices.get(req.params.id);
+  if (!device) return res.status(404).json({ ok: false, error: 'not found' });
+  const { ns, key } = req.query;
+  if (!ns || !key) return res.status(400).json({ ok: false, error: 'missing ns or key' });
+  const port = device.port || 80;
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), PING_TIMEOUT_MS * 3);
+  try {
+    const r = await fetch(`http://${device.ip}:${port}/config/key?ns=${encodeURIComponent(ns)}&key=${encodeURIComponent(key)}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(req.body),
+      signal: controller.signal,
+    });
+    const body = await r.json().catch(() => ({}));
+    res.status(r.ok ? 200 : 502).json(body);
+  } catch (_e) {
+    res.status(504).json({ ok: false, error: 'device unreachable' });
+  } finally {
+    clearTimeout(timer);
+  }
+});
+
+app.delete('/api/devices/:id/config/key', async (req, res) => {
+  const device = devices.get(req.params.id);
+  if (!device) return res.status(404).json({ ok: false, error: 'not found' });
+  const { ns, key } = req.query;
+  if (!ns || !key) return res.status(400).json({ ok: false, error: 'missing ns or key' });
+  const port = device.port || 80;
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), PING_TIMEOUT_MS * 3);
+  try {
+    const r = await fetch(`http://${device.ip}:${port}/config/key?ns=${encodeURIComponent(ns)}&key=${encodeURIComponent(key)}`, {
+      method: 'DELETE',
+      signal: controller.signal,
+    });
+    const body = await r.json().catch(() => ({}));
+    res.status(r.ok ? 200 : 502).json(body);
+  } catch (_e) {
+    res.status(504).json({ ok: false, error: 'device unreachable' });
+  } finally {
+    clearTimeout(timer);
+  }
+});
+
+app.delete('/api/devices/:id/config/namespace', async (req, res) => {
+  const device = devices.get(req.params.id);
+  if (!device) return res.status(404).json({ ok: false, error: 'not found' });
+  const { ns } = req.query;
+  if (!ns) return res.status(400).json({ ok: false, error: 'missing ns' });
+  const port = device.port || 80;
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), PING_TIMEOUT_MS * 3);
+  try {
+    const r = await fetch(`http://${device.ip}:${port}/config/namespace?ns=${encodeURIComponent(ns)}`, {
+      method: 'DELETE',
+      signal: controller.signal,
+    });
+    const body = await r.json().catch(() => ({}));
+    res.status(r.ok ? 200 : 502).json(body);
+  } catch (_e) {
+    res.status(504).json({ ok: false, error: 'device unreachable' });
+  } finally {
+    clearTimeout(timer);
+  }
+});
+
+app.delete('/api/devices/:id/config', async (req, res) => {
+  const device = devices.get(req.params.id);
+  if (!device) return res.status(404).json({ ok: false, error: 'not found' });
+  const port = device.port || 80;
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), PING_TIMEOUT_MS * 3);
+  try {
+    const r = await fetch(`http://${device.ip}:${port}/config`, {
+      method: 'DELETE',
+      signal: controller.signal,
+    });
+    const body = await r.json().catch(() => ({}));
+    res.status(r.ok ? 200 : 502).json(body);
+  } catch (_e) {
+    res.status(504).json({ ok: false, error: 'device unreachable' });
+  } finally {
+    clearTimeout(timer);
+  }
+});
+
+// Restore is orchestrated server-side: parse the backup JSON, erase all on
+// the device, then re-POST each key individually to avoid complex JSON parsing
+// on the embedded device.
+app.post('/api/devices/:id/config/restore', async (req, res) => {
+  const device = devices.get(req.params.id);
+  if (!device) return res.status(404).json({ ok: false, error: 'not found' });
+  const backup = req.body;
+  if (typeof backup !== 'object' || Array.isArray(backup) || !backup) {
+    return res.status(400).json({ ok: false, error: 'invalid backup format' });
+  }
+  const port = device.port || 80;
+  const base = `http://${device.ip}:${port}`;
+  const timeout = PING_TIMEOUT_MS * 3;
+
+  const doFetch = (url, opts = {}) => {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), timeout);
+    return fetch(url, { ...opts, signal: controller.signal }).finally(() => clearTimeout(timer));
+  };
+
+  try {
+    await doFetch(`${base}/config`, { method: 'DELETE' });
+    for (const [ns, keys] of Object.entries(backup)) {
+      if (typeof keys !== 'object' || Array.isArray(keys)) continue;
+      for (const [key, meta] of Object.entries(keys)) {
+        if (!meta || typeof meta.type !== 'string') continue;
+        await doFetch(
+          `${base}/config/key?ns=${encodeURIComponent(ns)}&key=${encodeURIComponent(key)}`,
+          {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ type: meta.type, value: String(meta.value) }),
+          }
+        );
+      }
+    }
+    res.json({ ok: true });
+  } catch (_e) {
+    res.status(504).json({ ok: false, error: 'device unreachable' });
+  }
+});
+
 app.get('/api/groups', (_req, res) => {
   res.json(groups);
 });

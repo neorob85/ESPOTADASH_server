@@ -193,8 +193,9 @@ function cardHtml(d) {
       <span>ultimo ping: <code>${fmtRel(d.lastPing || d.lastSeen)}</code></span>
       <div class="foot-actions">
         <button class="btn btn-cmd" data-action="command" data-id="${escapeHtml(d.id)}">Comandi</button>
-        <button class="btn btn-eeprom" data-action="eeprom" data-id="${escapeHtml(d.id)}">EEPROM</button>
-        ${d.littlefs ? `<button class="btn btn-fs" data-action="filesystem" data-id="${escapeHtml(d.id)}">Filesystem</button>` : ''}
+        ${!isLT ? `<button class="btn btn-eeprom" data-action="eeprom" data-id="${escapeHtml(d.id)}">EEPROM</button>` : ''}
+        ${!isLT && d.littlefs ? `<button class="btn btn-fs" data-action="filesystem" data-id="${escapeHtml(d.id)}">Filesystem</button>` : ''}
+        ${isLT ? `<button class="btn btn-config" data-action="config" data-id="${escapeHtml(d.id)}">Config</button>` : ''}
         <button class="btn btn-ota" data-action="ota" data-id="${escapeHtml(d.id)}">OTA</button>
         <button class="btn" data-action="remove" data-id="${escapeHtml(d.id)}">Rimuovi</button>
       </div>
@@ -226,6 +227,10 @@ grid.addEventListener('click', async (ev) => {
 
   if (btn.dataset.action === 'filesystem') {
     openFsModal(devices.get(id));
+  }
+
+  if (btn.dataset.action === 'config') {
+    openConfigModal(devices.get(id));
   }
 });
 
@@ -302,6 +307,7 @@ document.addEventListener('keydown', (ev) => {
     else if (!fwEditModal.classList.contains('hidden')) closeFwEditModal();
     else if (!fwModal.classList.contains('hidden')) closeFwUploadModal();
     else if (!fwFlashModal.classList.contains('hidden')) closeFwFlashModal();
+    else if (typeof configModal !== 'undefined' && !configModal.classList.contains('hidden')) closeConfigModal();
     else closeCmdModal();
   }
 });
@@ -2254,5 +2260,528 @@ fsEditModal.addEventListener('click', (ev) => { if (ev.target === fsEditModal) c
 fsModalClose.addEventListener('click', closeFsModal);
 fsModalExit.addEventListener('click', closeFsModal);
 fsModal.addEventListener('click', (ev) => { if (ev.target === fsModal) closeFsModal(); });
+
+// ---- Config Modal (LibreTiny / PrefsManager) ----
+
+const configModal       = document.getElementById('config-modal');
+const configModalTitle  = document.getElementById('config-modal-title');
+const configModalClose  = document.getElementById('config-modal-close');
+const configModalExit   = document.getElementById('config-modal-exit');
+const configLoading     = document.getElementById('config-loading');
+const configContent     = document.getElementById('config-content');
+const configStatus      = document.getElementById('config-status');
+const configAddNsBtn    = document.getElementById('config-add-ns-btn');
+const configBackupBtn   = document.getElementById('config-backup-btn');
+const configRestoreBtn  = document.getElementById('config-restore-btn');
+const configRestoreFile = document.getElementById('config-restore-file');
+const configDeleteAllBtn = document.getElementById('config-delete-all-btn');
+
+let configDevice = null;
+let configData   = {};
+
+const CONFIG_TYPES = ['str', 'int32', 'uint32', 'int64', 'float', 'double', 'bool'];
+
+const CONFIG_TYPE_LABELS = {
+  str: 'string', int32: 'int32', uint32: 'uint32',
+  int64: 'int64', float: 'float', double: 'double', bool: 'bool',
+};
+
+const CONFIG_TYPE_VALIDATORS = {
+  str:    () => true,
+  bool:   v => v === 'true' || v === 'false',
+  int32:  v => /^-?\d+$/.test(v.trim()) && Number(v) >= -2147483648 && Number(v) <= 2147483647,
+  uint32: v => /^\d+$/.test(v.trim()) && Number(v) <= 4294967295,
+  int64:  v => /^-?\d+$/.test(v.trim()),
+  float:  v => v.trim() !== '' && !isNaN(parseFloat(v)) && isFinite(Number(v)),
+  double: v => v.trim() !== '' && !isNaN(parseFloat(v)) && isFinite(Number(v)),
+};
+
+function setConfigStatus(msg, isError = false) {
+  configStatus.textContent = msg;
+  configStatus.className = 'config-status' + (isError ? ' err' : msg ? ' ok' : '');
+}
+
+async function openConfigModal(device) {
+  configDevice = device;
+  configModalTitle.textContent = `Config – ${device.name || device.hostname || device.id}`;
+  configModal.classList.remove('hidden');
+  await refreshConfig();
+}
+
+function closeConfigModal() {
+  configModal.classList.add('hidden');
+  configDevice = null;
+  configData = {};
+  configContent.innerHTML = '';
+  setConfigStatus('');
+}
+
+async function refreshConfig() {
+  configLoading.classList.remove('hidden');
+  configContent.innerHTML = '';
+  setConfigStatus('');
+  try {
+    const r = await fetch(`/api/devices/${encodeURIComponent(configDevice.id)}/config`);
+    if (!r.ok) throw new Error(`HTTP ${r.status}`);
+    configData = await r.json();
+    renderConfig(configData);
+  } catch (e) {
+    setConfigStatus(`Error: ${e.message}`, true);
+  } finally {
+    configLoading.classList.add('hidden');
+  }
+}
+
+function renderConfig(data) {
+  configContent.innerHTML = '';
+  const nsList = Object.keys(data);
+  if (nsList.length === 0) {
+    configContent.innerHTML = '<p class="config-empty">No namespaces. Click "+ Namespace" to add one.</p>';
+    return;
+  }
+  for (const ns of nsList) {
+    configContent.appendChild(renderNamespace(ns, data[ns]));
+  }
+}
+
+function makeTypeInput(type, value) {
+  let el;
+  if (type === 'bool') {
+    el = document.createElement('select');
+    el.className = 'config-value-input';
+    for (const v of ['true', 'false']) {
+      const opt = document.createElement('option');
+      opt.value = v;
+      opt.textContent = v;
+      if (String(value) === v) opt.selected = true;
+      el.appendChild(opt);
+    }
+  } else {
+    el = document.createElement('input');
+    el.className = 'config-value-input';
+    el.value = value != null ? String(value) : '';
+    if (type === 'int32')       { el.type = 'number'; el.step = '1'; el.min = '-2147483648'; el.max = '2147483647'; }
+    else if (type === 'uint32') { el.type = 'number'; el.step = '1'; el.min = '0'; el.max = '4294967295'; }
+    else if (type === 'float' || type === 'double') { el.type = 'number'; el.step = 'any'; }
+    else                        { el.type = 'text'; }
+  }
+  return el;
+}
+
+function renderNamespace(ns, keys) {
+  const section = document.createElement('section');
+  section.className = 'config-ns';
+  section.dataset.ns = ns;
+
+  const header = document.createElement('div');
+  header.className = 'config-ns-header';
+  const nameEl = document.createElement('span');
+  nameEl.className = 'config-ns-name';
+  nameEl.textContent = ns;
+  const actions = document.createElement('div');
+  actions.className = 'config-ns-actions';
+
+  const addKeyBtn = document.createElement('button');
+  addKeyBtn.className = 'btn btn-sm';
+  addKeyBtn.textContent = '+ Key';
+  addKeyBtn.addEventListener('click', () => showAddKeyForm(ns, section));
+
+  const delNsBtn = document.createElement('button');
+  delNsBtn.className = 'btn btn-sm btn-sm-del';
+  delNsBtn.textContent = 'Delete NS';
+  delNsBtn.addEventListener('click', () => deleteNamespace(ns));
+
+  actions.appendChild(addKeyBtn);
+  actions.appendChild(delNsBtn);
+  header.appendChild(nameEl);
+  header.appendChild(actions);
+  section.appendChild(header);
+
+  const keyEntries = Object.entries(keys);
+  if (keyEntries.length > 0) {
+    const table = document.createElement('table');
+    table.className = 'config-key-table';
+    table.innerHTML = '<thead><tr><th>Key</th><th>Type</th><th>Value</th><th></th></tr></thead>';
+    const tbody = document.createElement('tbody');
+    for (const [key, meta] of keyEntries) {
+      tbody.appendChild(renderKeyRow(ns, key, meta.type, meta.value));
+    }
+    table.appendChild(tbody);
+    section.appendChild(table);
+  }
+
+  return section;
+}
+
+function renderKeyRow(ns, key, type, value) {
+  const tr = document.createElement('tr');
+  tr.className = 'config-key-row';
+  tr.dataset.key = key;
+  const displayValue = value != null ? String(value) : '—';
+
+  const keyTd = document.createElement('td');
+  keyTd.className = 'config-key-name';
+  keyTd.textContent = key;
+
+  const typeTd = document.createElement('td');
+  const badge = document.createElement('span');
+  badge.className = `config-type-badge type-${type}`;
+  badge.textContent = CONFIG_TYPE_LABELS[type] || type;
+  typeTd.appendChild(badge);
+
+  const valueTd = document.createElement('td');
+  valueTd.className = 'config-value-cell';
+  valueTd.textContent = displayValue;
+
+  const actionsTd = document.createElement('td');
+  actionsTd.className = 'config-row-actions';
+  const editBtn = document.createElement('button');
+  editBtn.className = 'btn btn-sm btn-sm-edit';
+  editBtn.textContent = 'Edit';
+  editBtn.addEventListener('click', () => startEditKey(tr, ns, key, type, value));
+  const delBtn = document.createElement('button');
+  delBtn.className = 'btn btn-sm btn-sm-del';
+  delBtn.textContent = 'Del';
+  delBtn.addEventListener('click', () => deleteKey(ns, key));
+  actionsTd.appendChild(editBtn);
+  actionsTd.appendChild(delBtn);
+
+  tr.appendChild(keyTd);
+  tr.appendChild(typeTd);
+  tr.appendChild(valueTd);
+  tr.appendChild(actionsTd);
+  return tr;
+}
+
+function startEditKey(tr, ns, key, type, currentValue) {
+  const valueTd = tr.querySelector('.config-value-cell');
+  const actionsTd = tr.querySelector('.config-row-actions');
+  const originalText = valueTd.textContent;
+
+  const input = makeTypeInput(type, currentValue);
+  valueTd.textContent = '';
+  valueTd.appendChild(input);
+  input.focus();
+
+  actionsTd.innerHTML = '';
+  const saveBtn = document.createElement('button');
+  saveBtn.className = 'btn btn-sm btn-save';
+  saveBtn.textContent = 'Save';
+  const cancelBtn = document.createElement('button');
+  cancelBtn.className = 'btn btn-sm';
+  cancelBtn.textContent = 'Cancel';
+
+  const cancel = () => {
+    valueTd.textContent = originalText;
+    actionsTd.innerHTML = '';
+    const eb = document.createElement('button');
+    eb.className = 'btn btn-sm btn-sm-edit';
+    eb.textContent = 'Edit';
+    eb.addEventListener('click', () => startEditKey(tr, ns, key, type, currentValue));
+    const db = document.createElement('button');
+    db.className = 'btn btn-sm btn-sm-del';
+    db.textContent = 'Del';
+    db.addEventListener('click', () => deleteKey(ns, key));
+    actionsTd.appendChild(eb);
+    actionsTd.appendChild(db);
+  };
+
+  const save = async () => {
+    const newVal = input.value;
+    const validator = CONFIG_TYPE_VALIDATORS[type] || (() => true);
+    if (!validator(newVal)) {
+      setConfigStatus(`Invalid value for type "${type}"`, true);
+      input.focus();
+      return;
+    }
+    saveBtn.disabled = true;
+    setConfigStatus('Saving…');
+    try {
+      const r = await fetch(
+        `/api/devices/${encodeURIComponent(configDevice.id)}/config/key?ns=${encodeURIComponent(ns)}&key=${encodeURIComponent(key)}`,
+        { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ type, value: newVal }) }
+      );
+      const d = await r.json().catch(() => ({}));
+      if (r.ok && d.ok !== false) {
+        setConfigStatus('Saved');
+        await refreshConfig();
+      } else {
+        setConfigStatus(d.error || 'Save failed', true);
+        saveBtn.disabled = false;
+      }
+    } catch (_) {
+      setConfigStatus('Network error', true);
+      saveBtn.disabled = false;
+    }
+  };
+
+  saveBtn.addEventListener('click', save);
+  cancelBtn.addEventListener('click', cancel);
+  input.addEventListener('keydown', (ev) => {
+    if (ev.key === 'Enter') { ev.preventDefault(); save(); }
+    if (ev.key === 'Escape') cancel();
+  });
+  actionsTd.appendChild(saveBtn);
+  actionsTd.appendChild(cancelBtn);
+}
+
+async function deleteKey(ns, key) {
+  if (!confirm(`Delete key "${key}" from namespace "${ns}"?`)) return;
+  setConfigStatus('Deleting…');
+  try {
+    const r = await fetch(
+      `/api/devices/${encodeURIComponent(configDevice.id)}/config/key?ns=${encodeURIComponent(ns)}&key=${encodeURIComponent(key)}`,
+      { method: 'DELETE' }
+    );
+    const d = await r.json().catch(() => ({}));
+    if (r.ok && d.ok !== false) {
+      setConfigStatus('Key deleted');
+      await refreshConfig();
+    } else {
+      setConfigStatus(d.error || 'Delete failed', true);
+    }
+  } catch (_) {
+    setConfigStatus('Network error', true);
+  }
+}
+
+function showAddKeyForm(ns, section) {
+  section.querySelector('.config-add-key-row')?.remove();
+
+  let table = section.querySelector('.config-key-table');
+  if (!table) {
+    table = document.createElement('table');
+    table.className = 'config-key-table';
+    table.innerHTML = '<thead><tr><th>Key</th><th>Type</th><th>Value</th><th></th></tr></thead>';
+    table.appendChild(document.createElement('tbody'));
+    section.appendChild(table);
+  }
+  const tbody = table.querySelector('tbody');
+
+  const tr = document.createElement('tr');
+  tr.className = 'config-add-key-row';
+
+  const keyInput = document.createElement('input');
+  keyInput.type = 'text';
+  keyInput.className = 'config-key-input';
+  keyInput.placeholder = 'key name';
+  keyInput.maxLength = 15;
+
+  const typeSelect = document.createElement('select');
+  typeSelect.className = 'config-type-select';
+  for (const t of CONFIG_TYPES) {
+    const opt = document.createElement('option');
+    opt.value = t;
+    opt.textContent = CONFIG_TYPE_LABELS[t] || t;
+    typeSelect.appendChild(opt);
+  }
+
+  const valueCell = document.createElement('td');
+  let valInput = makeTypeInput('str', '');
+  valueCell.appendChild(valInput);
+  typeSelect.addEventListener('change', () => {
+    const newInput = makeTypeInput(typeSelect.value, '');
+    valueCell.replaceChild(newInput, valInput);
+    valInput = newInput;
+    newInput.focus();
+  });
+
+  const actionsTd = document.createElement('td');
+  const addBtn = document.createElement('button');
+  addBtn.className = 'btn btn-sm btn-save';
+  addBtn.textContent = 'Add';
+  const cancelBtn = document.createElement('button');
+  cancelBtn.className = 'btn btn-sm';
+  cancelBtn.textContent = 'Cancel';
+  cancelBtn.addEventListener('click', () => tr.remove());
+
+  const doAdd = async () => {
+    const key = keyInput.value.trim();
+    const type = typeSelect.value;
+    const val = valInput.value;
+    if (!key) { setConfigStatus('Key name required', true); keyInput.focus(); return; }
+    if (key.length > 15) { setConfigStatus('Key name max 15 chars', true); keyInput.focus(); return; }
+    const validator = CONFIG_TYPE_VALIDATORS[type] || (() => true);
+    if (!validator(val)) { setConfigStatus(`Invalid value for type "${type}"`, true); valInput.focus(); return; }
+    addBtn.disabled = true;
+    setConfigStatus('Adding…');
+    try {
+      const r = await fetch(
+        `/api/devices/${encodeURIComponent(configDevice.id)}/config/key?ns=${encodeURIComponent(ns)}&key=${encodeURIComponent(key)}`,
+        { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ type, value: val }) }
+      );
+      const d = await r.json().catch(() => ({}));
+      if (r.ok && d.ok !== false) {
+        setConfigStatus('Key added');
+        await refreshConfig();
+      } else {
+        setConfigStatus(d.error || 'Add failed', true);
+        addBtn.disabled = false;
+      }
+    } catch (_) {
+      setConfigStatus('Network error', true);
+      addBtn.disabled = false;
+    }
+  };
+
+  addBtn.addEventListener('click', doAdd);
+  keyInput.addEventListener('keydown', (ev) => {
+    if (ev.key === 'Enter') doAdd();
+    if (ev.key === 'Escape') tr.remove();
+  });
+
+  const keyTd = document.createElement('td');
+  keyTd.appendChild(keyInput);
+  const typeTd = document.createElement('td');
+  typeTd.appendChild(typeSelect);
+  actionsTd.appendChild(addBtn);
+  actionsTd.appendChild(cancelBtn);
+  tr.appendChild(keyTd);
+  tr.appendChild(typeTd);
+  tr.appendChild(valueCell);
+  tr.appendChild(actionsTd);
+  tbody.appendChild(tr);
+  keyInput.focus();
+}
+
+function showAddNamespaceForm() {
+  configContent.querySelector('.config-add-ns-form')?.remove();
+
+  const form = document.createElement('div');
+  form.className = 'config-add-ns-form';
+
+  const input = document.createElement('input');
+  input.type = 'text';
+  input.className = 'config-key-input';
+  input.placeholder = 'namespace name (max 15 chars)';
+  input.maxLength = 15;
+
+  const createBtn = document.createElement('button');
+  createBtn.className = 'btn btn-sm btn-save';
+  createBtn.textContent = 'Create';
+  const cancelBtn = document.createElement('button');
+  cancelBtn.className = 'btn btn-sm';
+  cancelBtn.textContent = 'Cancel';
+  cancelBtn.addEventListener('click', () => form.remove());
+
+  const doCreate = () => {
+    const ns = input.value.trim();
+    if (!ns) { setConfigStatus('Namespace name required', true); input.focus(); return; }
+    if (ns.length > 15) { setConfigStatus('Namespace name max 15 chars', true); input.focus(); return; }
+    if (ns === '_reg') { setConfigStatus('Reserved namespace name', true); input.focus(); return; }
+    form.remove();
+    const tempSection = renderNamespace(ns, {});
+    configContent.appendChild(tempSection);
+    showAddKeyForm(ns, tempSection);
+  };
+
+  createBtn.addEventListener('click', doCreate);
+  input.addEventListener('keydown', (ev) => {
+    if (ev.key === 'Enter') doCreate();
+    if (ev.key === 'Escape') form.remove();
+  });
+
+  form.appendChild(input);
+  form.appendChild(createBtn);
+  form.appendChild(cancelBtn);
+  configContent.prepend(form);
+  input.focus();
+}
+
+async function deleteNamespace(ns) {
+  if (!confirm(`Delete namespace "${ns}" and all its keys?`)) return;
+  setConfigStatus('Deleting namespace…');
+  try {
+    const r = await fetch(
+      `/api/devices/${encodeURIComponent(configDevice.id)}/config/namespace?ns=${encodeURIComponent(ns)}`,
+      { method: 'DELETE' }
+    );
+    const d = await r.json().catch(() => ({}));
+    if (r.ok && d.ok !== false) {
+      setConfigStatus('Namespace deleted');
+      await refreshConfig();
+    } else {
+      setConfigStatus(d.error || 'Delete failed', true);
+    }
+  } catch (_) {
+    setConfigStatus('Network error', true);
+  }
+}
+
+async function deleteAllConfig() {
+  if (!confirm('Delete ALL namespaces and keys?')) return;
+  if (!confirm('This is irreversible. Confirm?')) return;
+  setConfigStatus('Deleting all…');
+  try {
+    const r = await fetch(
+      `/api/devices/${encodeURIComponent(configDevice.id)}/config`,
+      { method: 'DELETE' }
+    );
+    const d = await r.json().catch(() => ({}));
+    if (r.ok && d.ok !== false) {
+      setConfigStatus('All config deleted');
+      await refreshConfig();
+    } else {
+      setConfigStatus(d.error || 'Delete failed', true);
+    }
+  } catch (_) {
+    setConfigStatus('Network error', true);
+  }
+}
+
+async function backupConfig() {
+  if (!configDevice) return;
+  setConfigStatus('Downloading backup…');
+  try {
+    const r = await fetch(`/api/devices/${encodeURIComponent(configDevice.id)}/config`);
+    if (!r.ok) throw new Error(`HTTP ${r.status}`);
+    const data = await r.json();
+    const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    const date = new Date().toISOString().slice(0, 10);
+    a.href = url;
+    a.download = `config_${configDevice.id}_${date}.json`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+    setConfigStatus('Backup downloaded');
+  } catch (e) {
+    setConfigStatus(`Backup failed: ${e.message}`, true);
+  }
+}
+
+async function restoreConfig(file) {
+  if (!file || !configDevice) return;
+  setConfigStatus('Restoring…');
+  try {
+    const text = await file.text();
+    const data = JSON.parse(text);
+    const r = await fetch(
+      `/api/devices/${encodeURIComponent(configDevice.id)}/config/restore`,
+      { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(data) }
+    );
+    const d = await r.json().catch(() => ({}));
+    if (r.ok && d.ok !== false) {
+      setConfigStatus('Restore complete');
+      await refreshConfig();
+    } else {
+      setConfigStatus(d.error || 'Restore failed', true);
+    }
+  } catch (e) {
+    setConfigStatus(`Restore failed: ${e.message}`, true);
+  }
+  configRestoreFile.value = '';
+}
+
+configAddNsBtn.addEventListener('click', showAddNamespaceForm);
+configBackupBtn.addEventListener('click', backupConfig);
+configRestoreBtn.addEventListener('click', () => configRestoreFile.click());
+configRestoreFile.addEventListener('change', (ev) => restoreConfig(ev.target.files[0]));
+configDeleteAllBtn.addEventListener('click', deleteAllConfig);
+configModalClose.addEventListener('click', closeConfigModal);
+configModalExit.addEventListener('click', closeConfigModal);
+configModal.addEventListener('click', (ev) => { if (ev.target === configModal) closeConfigModal(); });
 
 connect();
